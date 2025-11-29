@@ -327,6 +327,40 @@ class WorkMessenger {
       });
     });
 
+    // 입력 다이얼로그
+    const inputDialogOverlay = document.getElementById('input-dialog-overlay');
+    const inputDialogClose = document.getElementById('input-dialog-close');
+    const inputDialogCancel = document.getElementById('input-dialog-cancel');
+    const inputDialogOk = document.getElementById('input-dialog-ok');
+    const inputDialogInput = document.getElementById('input-dialog-input');
+
+    inputDialogClose?.addEventListener('click', () => {
+      this.closeInputDialog();
+    });
+
+    inputDialogCancel?.addEventListener('click', () => {
+      this.closeInputDialog();
+    });
+
+    inputDialogOk?.addEventListener('click', () => {
+      this.confirmInputDialog();
+    });
+
+    inputDialogInput?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        this.confirmInputDialog();
+      } else if (e.key === 'Escape') {
+        this.closeInputDialog();
+      }
+    });
+
+    inputDialogOverlay?.addEventListener('click', (e) => {
+      if (e.target === inputDialogOverlay) {
+        this.closeInputDialog();
+      }
+    });
+
     // 키보드 단축키
     document.addEventListener('keydown', (e) => {
       // Ctrl/Cmd + K: 검색
@@ -359,6 +393,48 @@ class WorkMessenger {
   autoResizeTextarea(textarea) {
     textarea.style.height = 'auto';
     textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
+  }
+
+  // 입력 다이얼로그 관련 메서드
+  inputDialogCallback = null;
+
+  showInputDialog(title, defaultValue = '') {
+    return new Promise((resolve) => {
+      const overlay = document.getElementById('input-dialog-overlay');
+      const titleElement = document.getElementById('input-dialog-title');
+      const input = document.getElementById('input-dialog-input');
+
+      titleElement.textContent = title;
+      input.value = defaultValue;
+      overlay.style.display = 'flex';
+      input.focus();
+      input.select();
+
+      this.inputDialogCallback = (result) => {
+        overlay.style.display = 'none';
+        this.inputDialogCallback = null;
+        resolve(result);
+      };
+    });
+  }
+
+  closeInputDialog() {
+    if (this.inputDialogCallback) {
+      this.inputDialogCallback(null);
+    }
+    const overlay = document.getElementById('input-dialog-overlay');
+    overlay.style.display = 'none';
+  }
+
+  confirmInputDialog() {
+    const input = document.getElementById('input-dialog-input');
+    const value = input.value.trim();
+
+    if (this.inputDialogCallback) {
+      this.inputDialogCallback(value || null);
+    }
+    const overlay = document.getElementById('input-dialog-overlay');
+    overlay.style.display = 'none';
   }
 
   loadDemoData() {
@@ -560,8 +636,8 @@ class WorkMessenger {
     document.getElementById('input-area').style.display = 'none';
   }
 
-  createNewServer() {
-    const name = prompt('새 서버 이름:');
+  async createNewServer() {
+    const name = await this.showInputDialog('새 서버 이름:');
     if (!name) return;
 
     const newServer = {
@@ -802,10 +878,10 @@ class WorkMessenger {
     this.renderMessages(channel.id);
   }
 
-  createNewCategory() {
+  async createNewCategory() {
     if (!this.currentServer) return;
 
-    const name = prompt('새 카테고리 이름:');
+    const name = await this.showInputDialog('새 카테고리 이름:');
     if (!name) return;
 
     const newCategory = {
@@ -819,8 +895,8 @@ class WorkMessenger {
     this.renderChannelList();
   }
 
-  editCategory(category) {
-    const name = prompt('카테고리 이름 변경:', category.name);
+  async editCategory(category) {
+    const name = await this.showInputDialog('카테고리 이름 변경:', category.name);
     if (!name || name === category.name) return;
 
     category.name = name;
@@ -841,15 +917,15 @@ class WorkMessenger {
     }
   }
 
-  createNewChannel() {
+  async createNewChannel() {
     if (!this.currentServer) return;
 
-    const name = prompt('새 채널 이름:');
+    const name = await this.showInputDialog('새 채널 이름:');
     if (!name) return;
 
     // 카테고리 선택 (첫 번째 카테고리에 추가)
     if (this.currentServer.categories.length === 0) {
-      this.createNewCategory();
+      await this.createNewCategory();
     }
 
     const category = this.currentServer.categories[0];
@@ -866,8 +942,8 @@ class WorkMessenger {
     this.selectChannel(newChannel);
   }
 
-  editChannel(channel) {
-    const name = prompt('채널 이름 변경:', channel.name);
+  async editChannel(channel) {
+    const name = await this.showInputDialog('채널 이름 변경:', channel.name);
     if (!name || name === channel.name) return;
 
     channel.name = name;
@@ -1119,7 +1195,7 @@ class WorkMessenger {
   // 마크다운 에디터
   // ========================================
 
-  applyMarkdownFormat(format) {
+  async applyMarkdownFormat(format) {
     const textarea = document.getElementById('message-input');
     if (!textarea) return;
 
@@ -1209,7 +1285,7 @@ class WorkMessenger {
         break;
 
       case 'callout':
-        const type = prompt('콜아웃 타입을 선택하세요:\ninfo / warning / error / success', 'info');
+        const type = await this.showInputDialog('콜아웃 타입을 선택하세요:\ninfo / warning / error / success', 'info');
         if (type) {
           formattedText = `:::${type}\n${selectedText || '콜아웃 내용'}\n:::`;
           cursorOffset = type.length + 4;
@@ -1380,7 +1456,7 @@ class WorkMessenger {
     }
   }
 
-  handleMessageAction(action, target) {
+  async handleMessageAction(action, target) {
     const { message, channelId } = target;
 
     switch (action) {
@@ -1388,7 +1464,7 @@ class WorkMessenger {
         this.togglePinMessage(message.id, channelId);
         break;
       case 'move':
-        this.moveMessageToChannel(message, channelId);
+        await this.moveMessageToChannel(message, channelId);
         break;
       case 'copy':
         this.copyMessageText(message);
@@ -1498,7 +1574,7 @@ class WorkMessenger {
   // 메시지 이동
   // ========================================
 
-  moveMessageToChannel(message, fromChannelId) {
+  async moveMessageToChannel(message, fromChannelId) {
     if (!this.currentServer) return;
 
     // 모든 채널 목록 수집
@@ -1518,7 +1594,7 @@ class WorkMessenger {
 
     // 채널 선택
     const channelNames = channels.map((c, i) => `${i + 1}. [${c.category}] ${c.channel.name}`).join('\n');
-    const input = prompt(`메시지를 이동할 채널 번호를 입력하세요:\n\n${channelNames}`);
+    const input = await this.showInputDialog(`메시지를 이동할 채널 번호를 입력하세요:\n\n${channelNames}`);
 
     if (!input) return;
 
@@ -1603,7 +1679,7 @@ class WorkMessenger {
   // 메시지 다운로드
   // ========================================
 
-  downloadMessages() {
+  async downloadMessages() {
     if (!this.currentChannel) return;
 
     const messages = this.messages[this.currentChannel.id] || [];
@@ -1613,7 +1689,7 @@ class WorkMessenger {
       return;
     }
 
-    const format = prompt('다운로드 형식을 선택하세요:\n1. JSON\n2. TXT', '1');
+    const format = await this.showInputDialog('다운로드 형식을 선택하세요:\n1. JSON\n2. TXT', '1');
 
     if (format === '1') {
       this.downloadAsJSON(messages);

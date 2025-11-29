@@ -1,8 +1,14 @@
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, Notification } = require('electron');
+const electron = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, Notification } = electron;
+const { ipcMain } = electron;
 const path = require('path');
 
 // 환경변수 로드
-require('dotenv').config();
+try {
+  require('dotenv').config();
+} catch (e) {
+  // dotenv not found, continue anyway
+}
 
 let mainWindow;
 let tray;
@@ -121,13 +127,8 @@ function createTray() {
 // 기본 트레이 아이콘 생성
 function createDefaultTrayIcon() {
   const size = 16;
-  const canvas = `
-    <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">
-      <rect width="${size}" height="${size}" rx="3" fill="#6366f1"/>
-      <path d="M4 5h8v1H4zM4 7.5h6v1H4zM4 10h8v1H4z" fill="white"/>
-    </svg>
-  `;
-  return nativeImage.createFromBuffer(Buffer.from(canvas));
+  const svg = `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg"><rect width="${size}" height="${size}" rx="3" fill="#6366f1"/><path d="M4 5h8v1H4zM4 7.5h6v1H4zM4 10h8v1H4z" fill="white"/></svg>`;
+  return nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`);
 }
 
 // IPC 핸들러들
