@@ -5,7 +5,8 @@
       "Bash(npm install)",
       "Bash(npm start)",
       "Bash(taskkill:*)",
-      "Bash(node -c:*)"
+      "Bash(node -c:*)",
+      "Bash(git checkout:*)"
     ],
     "deny": [],
     "ask": []

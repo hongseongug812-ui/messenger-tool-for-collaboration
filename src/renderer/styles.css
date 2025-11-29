@@ -700,6 +700,7 @@ body {
   flex-direction: column;
   flex: 1;
   background: var(--bg-primary);
+  overflow: hidden;
 }
 
 .empty-state {
@@ -862,12 +863,32 @@ body {
   border-bottom-left-radius: 4px;
 }
 
+/* 메시지와 멤버 영역 */
+.messages-and-members {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  min-height: 0;
+  gap: 0;
+}
+
+/* 채팅 콘텐츠 영역 */
+.chat-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  background: var(--bg-primary);
+}
+
 /* 입력 영역 */
 .input-area {
   position: relative;
   padding: 12px 20px 16px;
   background: var(--bg-secondary);
   border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
 }
 
 /* 마크다운 툴바 */
@@ -2132,6 +2153,182 @@ body {
 
 .btn-primary:hover {
   background: var(--accent-hover);
+}
+
+/* ========================================
+   멤버 패널
+   ======================================== */
+.members-panel {
+  display: flex;
+  flex-direction: column;
+  width: 280px;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.members-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.members-header h3 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.members-header .icon-btn {
+  padding: 4px;
+}
+
+.members-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  margin: 8px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+}
+
+.members-search svg {
+  flex-shrink: 0;
+}
+
+.members-search input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+}
+
+.members-search input::placeholder {
+  color: var(--text-placeholder);
+}
+
+.members-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.member-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: var(--transition-fast);
+  border-left: 3px solid transparent;
+}
+
+.member-item:hover {
+  background: var(--bg-hover);
+  border-left-color: var(--accent);
+}
+
+.member-item-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-full);
+  background: var(--accent-subtle);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.member-item-avatar::after {
+  content: '';
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--online);
+  bottom: 0;
+  right: 0;
+  border: 2px solid var(--bg-secondary);
+}
+
+.member-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.member-item-name {
+  font-size: 13px;
+  color: var(--text-primary);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.member-item-role {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 멤버 패널 스크롤바 */
+.members-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.members-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.members-list::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 3px;
+}
+
+.members-list::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}
+
+/* ========================================
+   리사이저 - 마우스로 창 크기 조절
+   ======================================== */
+.resizer {
+  background: var(--border);
+  user-select: none;
+  flex-shrink: 0;
+  transition: background-color var(--transition-fast);
+}
+
+.resizer:hover {
+  background: var(--accent);
+}
+
+.resizer[data-direction="horizontal"] {
+  width: 4px;
+  cursor: col-resize;
+}
+
+.resizer[data-direction="vertical"] {
+  height: 4px;
+  cursor: row-resize;
+}
+
+.resizer.active {
+  background: var(--accent);
 }
 
 /* ========================================

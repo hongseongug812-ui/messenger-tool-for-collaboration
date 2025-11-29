@@ -569,6 +569,27 @@ class WorkMessenger {
       ]
     };
 
+    // 멤버 패널 토글 버튼
+    const btnToggleMembers = document.getElementById('btn-toggle-members');
+    const closeMembersBtn = document.getElementById('toggle-members-panel');
+
+    btnToggleMembers?.addEventListener('click', () => {
+      const panel = document.getElementById('members-panel');
+      if (panel.style.display === 'none' || panel.style.display === '') {
+        panel.style.display = 'flex';
+      } else {
+        panel.style.display = 'none';
+      }
+    });
+
+    closeMembersBtn?.addEventListener('click', () => {
+      const panel = document.getElementById('members-panel');
+      panel.style.display = 'none';
+    });
+
+    // 리사이저 초기화
+    this.initResizers();
+
     this.renderServerList();
   }
 
@@ -630,10 +651,14 @@ class WorkMessenger {
     this.renderChannelList();
 
     // 채팅 영역 빈 상태로
+    document.getElementById('messages-and-members').style.display = 'flex';
     document.getElementById('empty-state').style.display = 'flex';
     document.getElementById('chat-header').style.display = 'none';
     document.getElementById('messages-container').style.display = 'none';
     document.getElementById('input-area').style.display = 'none';
+
+    // 멤버 패널 표시
+    this.renderMembers();
   }
 
   async createNewServer() {
@@ -864,10 +889,11 @@ class WorkMessenger {
     this.renderServerList();
 
     // 빈 상태 숨기기
+    document.getElementById('messages-and-members').style.display = 'flex';
     document.getElementById('empty-state').style.display = 'none';
     document.getElementById('chat-header').style.display = 'flex';
     document.getElementById('messages-container').style.display = 'flex';
-    document.getElementById('input-area').style.display = 'block';
+    document.getElementById('input-area').style.display = 'flex';
 
     // 헤더 업데이트
     document.getElementById('chat-avatar-text').textContent = '#';
@@ -876,6 +902,49 @@ class WorkMessenger {
 
     // 메시지 렌더링
     this.renderMessages(channel.id);
+
+    // 멤버 패널 표시
+    this.renderMembers();
+  }
+
+  renderMembers() {
+    const panel = document.getElementById('members-panel');
+    const list = document.getElementById('members-list');
+
+    if (!panel || !list || !this.currentServer) return;
+
+    // 패널 표시
+    panel.style.display = 'flex';
+
+    // 멤버 목록 렌더링
+    list.innerHTML = this.members.map(member => `
+      <div class="member-item" title="${member.name}">
+        <div class="member-item-avatar">${member.avatar}</div>
+        <div class="member-item-info">
+          <div class="member-item-name">${member.name}</div>
+          <div class="member-item-role">${member.role}</div>
+        </div>
+      </div>
+    `).join('');
+
+    // 멤버 검색
+    const searchInput = document.getElementById('members-search-input');
+    searchInput?.addEventListener('input', (e) => {
+      const query = e.target.value.toLowerCase();
+      const items = list.querySelectorAll('.member-item');
+
+      items.forEach(item => {
+        const name = item.querySelector('.member-item-name').textContent.toLowerCase();
+        item.style.display = name.includes(query) ? 'flex' : 'none';
+      });
+    });
+
+    // 멤버 패널 닫기 버튼
+    const closeBtn = document.getElementById('toggle-members-panel');
+    closeBtn?.removeEventListener('click', this.closeMembersPanel);
+    closeBtn?.addEventListener('click', () => {
+      panel.style.display = 'none';
+    });
   }
 
   async createNewCategory() {
@@ -965,6 +1034,7 @@ class WorkMessenger {
 
       if (this.currentChannel?.id === channel.id) {
         this.currentChannel = null;
+        document.getElementById('messages-and-members').style.display = 'flex';
         document.getElementById('empty-state').style.display = 'flex';
         document.getElementById('chat-header').style.display = 'none';
         document.getElementById('messages-container').style.display = 'none';
@@ -2337,6 +2407,84 @@ class WorkMessenger {
 
     themeBtn.textContent = icons[this.currentTheme];
     themeBtn.title = labels[this.currentTheme];
+  }
+
+  // ========================================
+  // 리사이저 시스템 (조절 가능한 패널)
+  // ========================================
+
+  initResizers() {
+    // 사이드바 리사이저 (좌우 조절)
+    this.setupResizer('sidebar-resizer', 'horizontal', (delta) => {
+      const chatList = document.getElementById('chat-list');
+      const currentWidth = chatList.offsetWidth;
+      const newWidth = Math.max(240, Math.min(600, currentWidth + delta));
+      chatList.style.width = newWidth + 'px';
+    });
+
+    // 멤버 패널 리사이저 (좌우 조절)
+    this.setupResizer('members-resizer', 'vertical', (delta) => {
+      const messagesContainer = document.getElementById('messages-container');
+      const currentHeight = messagesContainer.offsetHeight;
+      const newHeight = Math.max(200, currentHeight - delta);
+      messagesContainer.style.height = newHeight + 'px';
+    });
+
+    // 입력 영역 리사이저 (상하 조절)
+    this.setupResizer('input-resizer', 'horizontal', (delta) => {
+      const inputArea = document.getElementById('input-area');
+      const currentHeight = inputArea.offsetHeight;
+      const newHeight = Math.max(60, currentHeight + delta);
+      inputArea.style.height = newHeight + 'px';
+
+      // 텍스트 영역 높이도 조정
+      const textarea = document.getElementById('message-input');
+      if (textarea) {
+        textarea.style.height = 'auto';
+        textarea.style.height = (textarea.scrollHeight - 16) + 'px';
+      }
+    });
+  }
+
+  setupResizer(resizerId, direction, onDrag) {
+    const resizer = document.getElementById(resizerId);
+    if (!resizer) return;
+
+    let isResizing = false;
+    let startPos = 0;
+
+    const handleMouseDown = (e) => {
+      isResizing = true;
+      startPos = direction === 'horizontal' ? e.clientX : e.clientY;
+      resizer.classList.add('active');
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = direction === 'horizontal' ? 'col-resize' : 'row-resize';
+    };
+
+    const handleMouseMove = (e) => {
+      if (!isResizing) return;
+
+      const currentPos = direction === 'horizontal' ? e.clientX : e.clientY;
+      const delta = currentPos - startPos;
+
+      if (Math.abs(delta) > 1) {
+        onDrag(delta);
+        startPos = currentPos;
+      }
+    };
+
+    const handleMouseUp = () => {
+      if (isResizing) {
+        isResizing = false;
+        resizer.classList.remove('active');
+        document.body.style.userSelect = '';
+        document.body.style.cursor = '';
+      }
+    };
+
+    resizer.addEventListener('mousedown', handleMouseDown);
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
   }
 }
 

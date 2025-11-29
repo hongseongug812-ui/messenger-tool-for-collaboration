@@ -1,6 +1,11 @@
+console.log('[Main Process] Loading...');
 const electron = require('electron');
-const { app, BrowserWindow, Tray, Menu, nativeImage, Notification } = electron;
-const { ipcMain } = electron;
+console.log('[Main Process] Electron loaded:', !!electron);
+console.log('[Main Process] Electron keys:', typeof electron === 'object' ? Object.keys(electron).slice(0, 20) : typeof electron);
+const { app, BrowserWindow, Tray, Menu, nativeImage, Notification } = electron || {};
+const { ipcMain } = electron || {};
+console.log('[Main Process] app available:', !!app);
+console.log('[Main Process] electron.app:', !!electron.app);
 const path = require('path');
 
 // 환경변수 로드
@@ -131,66 +136,69 @@ function createDefaultTrayIcon() {
   return nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`);
 }
 
-// IPC 핸들러들
-ipcMain.handle('get-config', () => {
-  return {
-    serverUrl: config.serverUrl,
-    socketPort: config.socketPort,
-    pushEnabled: config.pushEnabled
-  };
-});
+// IPC 핸들러들 등록
+function registerIpcHandlers() {
+  ipcMain.handle('get-config', () => {
+    return {
+      serverUrl: config.serverUrl,
+      socketPort: config.socketPort,
+      pushEnabled: config.pushEnabled
+    };
+  });
 
-ipcMain.handle('get-api-credentials', () => {
-  return {
-    apiKey: config.apiKey,
-    apiSecret: config.apiSecret
-  };
-});
+  ipcMain.handle('get-api-credentials', () => {
+    return {
+      apiKey: config.apiKey,
+      apiSecret: config.apiSecret
+    };
+  });
 
-ipcMain.handle('window-minimize', () => {
-  mainWindow.minimize();
-});
+  ipcMain.handle('window-minimize', () => {
+    mainWindow.minimize();
+  });
 
-ipcMain.handle('window-maximize', () => {
-  if (mainWindow.isMaximized()) {
-    mainWindow.unmaximize();
-  } else {
-    mainWindow.maximize();
-  }
-});
+  ipcMain.handle('window-maximize', () => {
+    if (mainWindow.isMaximized()) {
+      mainWindow.unmaximize();
+    } else {
+      mainWindow.maximize();
+    }
+  });
 
-ipcMain.handle('window-close', () => {
-  mainWindow.hide();
-});
+  ipcMain.handle('window-close', () => {
+    mainWindow.hide();
+  });
 
-// 알림 보내기
-ipcMain.handle('show-notification', (event, { title, body, icon }) => {
-  if (config.pushEnabled && Notification.isSupported()) {
-    const notification = new Notification({
-      title,
-      body,
-      icon: icon || path.join(__dirname, '../assets/icon.png'),
-      silent: !config.pushSound
-    });
-    
-    notification.on('click', () => {
-      mainWindow.show();
-      mainWindow.focus();
-    });
-    
-    notification.show();
-  }
-});
+  // 알림 보내기
+  ipcMain.handle('show-notification', (event, { title, body, icon }) => {
+    if (config.pushEnabled && Notification.isSupported()) {
+      const notification = new Notification({
+        title,
+        body,
+        icon: icon || path.join(__dirname, '../assets/icon.png'),
+        silent: !config.pushSound
+      });
 
-// 읽지 않은 메시지 배지 업데이트
-ipcMain.handle('update-badge', (event, count) => {
-  if (process.platform === 'darwin') {
-    app.dock.setBadge(count > 0 ? count.toString() : '');
-  }
-  // Windows에서는 오버레이 아이콘 사용 가능
-});
+      notification.on('click', () => {
+        mainWindow.show();
+        mainWindow.focus();
+      });
+
+      notification.show();
+    }
+  });
+
+  // 읽지 않은 메시지 배지 업데이트
+  ipcMain.handle('update-badge', (event, count) => {
+    if (process.platform === 'darwin') {
+      app.dock.setBadge(count > 0 ? count.toString() : '');
+    }
+    // Windows에서는 오버레이 아이콘 사용 가능
+  });
+}
 
 app.whenReady().then(() => {
+  registerIpcHandlers();
   createWindow();
   createTray();
 

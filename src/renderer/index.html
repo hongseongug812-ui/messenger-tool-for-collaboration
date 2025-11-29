@@ -109,198 +109,235 @@
         </div>
       </section>
 
+      <!-- 사이드바 리사이저 -->
+      <div class="resizer" id="sidebar-resizer" data-direction="horizontal"></div>
+
       <!-- 채팅 영역 -->
       <section class="chat-area" id="chat-area">
-        <!-- 채팅 미선택 상태 -->
-        <div class="empty-state" id="empty-state">
-          <div class="empty-icon">
-            <svg width="64" height="64" viewBox="0 0 24 24" fill="none">
-              <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </div>
-          <h3>대화를 선택하세요</h3>
-          <p>왼쪽에서 대화를 선택하거나 새 대화를 시작하세요</p>
-        </div>
-
-        <!-- 채팅 헤더 (채팅 선택 시 표시) -->
-        <div class="chat-header" id="chat-header" style="display: none;">
-          <div class="chat-header-info">
-            <div class="avatar">
-              <span id="chat-avatar-text">T</span>
+        <!-- 메시지와 멤버 영역 -->
+        <div class="messages-and-members" id="messages-and-members" style="display: none;">
+          <!-- 메시지 콘텐츠 -->
+          <div class="chat-content">
+            <!-- 채팅 미선택 상태 -->
+            <div class="empty-state" id="empty-state">
+              <div class="empty-icon">
+                <svg width="64" height="64" viewBox="0 0 24 24" fill="none">
+                  <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </div>
+              <h3>대화를 선택하세요</h3>
+              <p>왼쪽에서 대화를 선택하거나 새 대화를 시작하세요</p>
             </div>
-            <div class="chat-header-text">
-              <h3 id="chat-title">팀 채널</h3>
-              <span class="chat-status" id="chat-status">3명 온라인</span>
+
+            <!-- 채팅 헤더 (채팅 선택 시 표시) -->
+            <div class="chat-header" id="chat-header" style="display: none;">
+              <div class="chat-header-info">
+                <div class="avatar">
+                  <span id="chat-avatar-text">T</span>
+                </div>
+                <div class="chat-header-text">
+                  <h3 id="chat-title">팀 채널</h3>
+                  <span class="chat-status" id="chat-status">3명 온라인</span>
+                </div>
+              </div>
+              <div class="chat-header-actions">
+                <button class="icon-btn" id="btn-pinned-messages" title="고정된 메시지" style="display: none;">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                    <path d="M12 2L9.5 9.5L2 12l7.5 2.5L12 22l2.5-7.5L22 12l-7.5-2.5L12 2z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  <span class="badge" id="pinned-count" style="display: none;">0</span>
+                </button>
+                <button class="icon-btn" id="btn-download-messages" title="메시지 다운로드">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </button>
+                <button class="icon-btn" id="btn-toggle-members" title="참여자">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M16 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 11a3 3 0 1 1 0-6 3 3 0 0 1 0 6z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <!-- 고정된 메시지 패널 -->
+            <div class="pinned-messages-panel" id="pinned-panel" style="display: none;">
+              <div class="pinned-header">
+                <h4>고정된 메시지</h4>
+                <button class="icon-btn" id="close-pinned-panel">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                    <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                  </svg>
+                </button>
+              </div>
+              <div class="pinned-messages" id="pinned-messages">
+                <!-- 고정된 메시지들이 표시됨 -->
+              </div>
+            </div>
+
+            <!-- 메시지 영역 -->
+            <div class="messages-container" id="messages-container" style="display: none;">
+              <div class="messages" id="messages">
+                <!-- 메시지들이 동적으로 추가됨 -->
+              </div>
+            </div>
+
+            <!-- 메시지 컨텍스트 메뉴 -->
+            <div class="context-menu" id="message-context-menu" style="display: none;">
+              <button class="context-menu-item" data-action="pin">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 2L9.5 9.5L2 12l7.5 2.5L12 22l2.5-7.5L22 12l-7.5-2.5L12 2z" stroke="currentColor" stroke-width="1.5"/>
+                </svg>
+                <span>메시지 고정</span>
+              </button>
+              <button class="context-menu-item" data-action="move">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+                <span>다른 채널로 이동</span>
+              </button>
+              <button class="context-menu-item" data-action="copy">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                  <rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" stroke-width="1.5"/>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke="currentColor" stroke-width="1.5"/>
+                </svg>
+                <span>텍스트 복사</span>
+              </button>
+              <div class="context-menu-divider"></div>
+              <button class="context-menu-item danger" data-action="delete">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                  <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" stroke="currentColor" stroke-width="1.5"/>
+                </svg>
+                <span>메시지 삭제</span>
+              </button>
             </div>
           </div>
-          <div class="chat-header-actions">
-            <button class="icon-btn" id="btn-pinned-messages" title="고정된 메시지" style="display: none;">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <path d="M12 2L9.5 9.5L2 12l7.5 2.5L12 22l2.5-7.5L22 12l-7.5-2.5L12 2z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-              <span class="badge" id="pinned-count" style="display: none;">0</span>
-            </button>
-            <button class="icon-btn" id="btn-download-messages" title="메시지 다운로드">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </button>
-            <button class="icon-btn" title="정보">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5"/>
-                <path d="M12 16v-4M12 8h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-              </svg>
-            </button>
-          </div>
-        </div>
 
-        <!-- 고정된 메시지 패널 -->
-        <div class="pinned-messages-panel" id="pinned-panel" style="display: none;">
-          <div class="pinned-header">
-            <h4>고정된 메시지</h4>
-            <button class="icon-btn" id="close-pinned-panel">
+          <!-- 멤버 패널 리사이저 -->
+          <div class="resizer" id="members-resizer" data-direction="vertical"></div>
+
+          <!-- 멤버 패널 -->
+          <aside class="members-panel" id="members-panel" style="display: none;">
+            <div class="members-header">
+              <h3>참여자</h3>
+              <button class="icon-btn" id="toggle-members-panel" title="참여자 닫기">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                  <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+              </button>
+            </div>
+            <div class="members-search">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                <circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="1.5"/>
+                <path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
               </svg>
-            </button>
-          </div>
-          <div class="pinned-messages" id="pinned-messages">
-            <!-- 고정된 메시지들이 표시됨 -->
-          </div>
+              <input type="text" placeholder="참여자 검색..." id="members-search-input">
+            </div>
+            <div class="members-list" id="members-list">
+              <!-- 멤버들이 동적으로 추가됨 -->
+            </div>
+          </aside>
         </div>
 
-        <!-- 메시지 영역 -->
-        <div class="messages-container" id="messages-container" style="display: none;">
-          <div class="messages" id="messages">
-            <!-- 메시지들이 동적으로 추가됨 -->
-          </div>
-        </div>
-
-        <!-- 메시지 컨텍스트 메뉴 -->
-        <div class="context-menu" id="message-context-menu" style="display: none;">
-          <button class="context-menu-item" data-action="pin">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-              <path d="M12 2L9.5 9.5L2 12l7.5 2.5L12 22l2.5-7.5L22 12l-7.5-2.5L12 2z" stroke="currentColor" stroke-width="1.5"/>
-            </svg>
-            <span>메시지 고정</span>
-          </button>
-          <button class="context-menu-item" data-action="move">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-              <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-            </svg>
-            <span>다른 채널로 이동</span>
-          </button>
-          <button class="context-menu-item" data-action="copy">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-              <rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" stroke-width="1.5"/>
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke="currentColor" stroke-width="1.5"/>
-            </svg>
-            <span>텍스트 복사</span>
-          </button>
-          <div class="context-menu-divider"></div>
-          <button class="context-menu-item danger" data-action="delete">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-              <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" stroke="currentColor" stroke-width="1.5"/>
-            </svg>
-            <span>메시지 삭제</span>
-          </button>
-        </div>
+        <!-- 입력 영역 리사이저 -->
+        <div class="resizer" id="input-resizer" data-direction="horizontal"></div>
 
         <!-- 입력 영역 -->
         <div class="input-area" id="input-area" style="display: none;">
-          <!-- 마크다운 툴바 -->
-          <div class="markdown-toolbar">
-            <button class="toolbar-btn" data-format="bold" title="굵게 (Ctrl+B)">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6zM6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </button>
-            <button class="toolbar-btn" data-format="italic" title="기울임 (Ctrl+I)">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <path d="M19 4h-9M14 20H5M15 4L9 20" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </button>
-            <button class="toolbar-btn" data-format="code" title="인라인 코드 (Ctrl+E)">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <path d="M16 18l6-6-6-6M8 6l-6 6 6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </button>
-            <button class="toolbar-btn" data-format="codeblock" title="코드블록">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2"/>
-                <path d="M9 9l-3 3 3 3M15 9l3 3-3 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </button>
-            <div class="toolbar-divider"></div>
-            <button class="toolbar-btn" data-format="h1" title="제목 1">
-              <span style="font-weight: 600;">H1</span>
-            </button>
-            <button class="toolbar-btn" data-format="h2" title="제목 2">
-              <span style="font-weight: 600; font-size: 13px;">H2</span>
-            </button>
-            <button class="toolbar-btn" data-format="h3" title="제목 3">
-              <span style="font-weight: 600; font-size: 12px;">H3</span>
-            </button>
-            <div class="toolbar-divider"></div>
-            <button class="toolbar-btn" data-format="ul" title="글머리 기호 목록">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-              </svg>
-            </button>
-            <button class="toolbar-btn" data-format="ol" title="번호 매기기 목록">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <path d="M10 6h11M10 12h11M10 18h11M4 6h1v4M4 10h2M6 18H4c0-1 2-2 2-3s-1-1.5-2-1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-              </svg>
-            </button>
-            <button class="toolbar-btn" data-format="quote" title="인용구">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <path d="M6 15h15M6 9h15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-              </svg>
-            </button>
-          </div>
-
-          <div class="input-container">
-            <button class="icon-btn attach-btn" title="파일 첨부">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </button>
-            <button class="icon-btn emoji-btn" id="emoji-btn" title="이모지">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5"/>
-                <path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-              </svg>
-            </button>
-            <div class="input-wrapper">
-              <textarea
-                id="message-input"
-                placeholder="메시지를 입력하세요... (마크다운 지원)"
-                rows="1"
-              ></textarea>
+            <!-- 마크다운 툴바 -->
+            <div class="markdown-toolbar">
+              <button class="toolbar-btn" data-format="bold" title="굵게 (Ctrl+B)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                  <path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6zM6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+              <button class="toolbar-btn" data-format="italic" title="기울임 (Ctrl+I)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                  <path d="M19 4h-9M14 20H5M15 4L9 20" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+              <button class="toolbar-btn" data-format="code" title="인라인 코드 (Ctrl+E)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                  <path d="M16 18l6-6-6-6M8 6l-6 6 6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+              <button class="toolbar-btn" data-format="codeblock" title="코드블록">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                  <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2"/>
+                  <path d="M9 9l-3 3 3 3M15 9l3 3-3 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+              <div class="toolbar-divider"></div>
+              <button class="toolbar-btn" data-format="h1" title="제목 1">
+                <span style="font-weight: 600;">H1</span>
+              </button>
+              <button class="toolbar-btn" data-format="h2" title="제목 2">
+                <span style="font-weight: 600; font-size: 13px;">H2</span>
+              </button>
+              <button class="toolbar-btn" data-format="h3" title="제목 3">
+                <span style="font-weight: 600; font-size: 12px;">H3</span>
+              </button>
+              <div class="toolbar-divider"></div>
+              <button class="toolbar-btn" data-format="ul" title="글머리 기호 목록">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                  <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+              </button>
+              <button class="toolbar-btn" data-format="ol" title="번호 매기기 목록">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                  <path d="M10 6h11M10 12h11M10 18h11M4 6h1v4M4 10h2M6 18H4c0-1 2-2 2-3s-1-1.5-2-1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+              </button>
+              <button class="toolbar-btn" data-format="quote" title="인용구">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                  <path d="M6 15h15M6 9h15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+              </button>
             </div>
-            <button class="send-btn" id="send-btn" disabled title="보내기">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </button>
-          </div>
-          <div class="input-hints">
-            <span><kbd>Enter</kbd> 전송</span>
-            <span><kbd>Shift + Enter</kbd> 줄바꿈</span>
-          </div>
 
-          <!-- 자동완성 드롭다운 -->
-          <div class="autocomplete-dropdown" id="autocomplete-dropdown" style="display: none;">
-            <div class="autocomplete-items" id="autocomplete-items"></div>
-          </div>
-
-          <!-- 이모지 피커 -->
-          <div class="emoji-picker" id="emoji-picker" style="display: none;">
-            <div class="emoji-picker-header">
-              <input type="text" class="emoji-search" id="emoji-search" placeholder="이모지 검색...">
+            <div class="input-container">
+              <button class="icon-btn attach-btn" title="파일 첨부">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+              <button class="icon-btn emoji-btn" id="emoji-btn" title="이모지">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5"/>
+                  <path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+              </button>
+              <div class="input-wrapper">
+                <textarea
+                  id="message-input"
+                  placeholder="메시지를 입력하세요... (마크다운 지원)"
+                  rows="1"
+                ></textarea>
+              </div>
+              <button class="send-btn" id="send-btn" disabled title="보내기">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
             </div>
-            <div class="emoji-categories" id="emoji-categories"></div>
-            <div class="emoji-grid" id="emoji-grid"></div>
+            <div class="input-hints">
+              <span><kbd>Enter</kbd> 전송</span>
+              <span><kbd>Shift + Enter</kbd> 줄바꿈</span>
+            </div>
+
+            <!-- 자동완성 드롭다운 -->
+            <div class="autocomplete-dropdown" id="autocomplete-dropdown" style="display: none;">
+              <div class="autocomplete-items" id="autocomplete-items"></div>
+            </div>
+
+            <!-- 이모지 피커 -->
+            <div class="emoji-picker" id="emoji-picker" style="display: none;">
+              <div class="emoji-picker-header">
+                <input type="text" class="emoji-search" id="emoji-search" placeholder="이모지 검색...">
+              </div>
+              <div class="emoji-categories" id="emoji-categories"></div>
+              <div class="emoji-grid" id="emoji-grid"></div>
+            </div>
           </div>
         </div>
       </section>
