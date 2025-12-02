@@ -10,6 +10,7 @@ class WorkMessenger {
     this.servers = [];
     this.messages = {};
     this.pinnedMessages = {};
+    this.reactions = {}; // 메시지 리액션 저장: { channelId: { messageId: { emoji: [userId, ...] } } }
     this.apiBase = '';
     this.loadedMessages = new Set();
     this.user = {
@@ -78,8 +79,14 @@ class WorkMessenger {
     // 테마 설정
     this.currentTheme = 'dark'; // 'dark', 'light', 'system'
 
-    // 데모 멤버 데이터
-    this.members = [
+    // 서버별 멤버 데이터
+    this.serverMembers = {
+      // 각 서버 ID를 키로 사용하여 멤버 목록 저장
+      // 'server_id': [{ id, name, avatar, role }, ...]
+    };
+
+    // 기본 멤버 데이터 (새 서버 생성 시 사용)
+    this.defaultMembers = [
       { id: 'user_1', name: '박지민', avatar: '박', role: '팀장' },
       { id: 'user_2', name: '최민준', avatar: '최', role: '개발자' },
       { id: 'user_3', name: '김서연', avatar: '김', role: '디자이너' },
@@ -88,6 +95,58 @@ class WorkMessenger {
       { id: 'user_6', name: '강민수', avatar: '강', role: '개발자' },
       { id: 'user_7', name: '윤지우', avatar: '윤', role: '마케터' }
     ];
+
+    // 음성채팅 상태
+    this.voiceChat = {
+      isActive: false,
+      isMuted: false,
+      isSpeakerOn: true,
+      startTime: null,
+      participants: []
+    };
+
+    // 화면 공유 상태
+    this.screenShare = {
+      isSharing: false,
+      stream: null
+    };
+
+    // 달력 데이터
+    this.calendar = {
+      currentYear: new Date().getFullYear(),
+      currentMonth: new Date().getMonth(),
+      selectedDate: null,
+      events: []
+    };
+
+    // 프로필 데이터
+    this.profile = {
+      name: '사용자',
+      statusMessage: '',
+      email: '',
+      phone: '',
+      status: 'online' // 'online', 'away', 'busy', 'offline'
+    };
+
+    // 화이트보드 상태
+    this.whiteboard = {
+      canvas: null,
+      ctx: null,
+      isDrawing: false,
+      currentTool: 'pen',
+      currentColor: '#6366f1',
+      currentWidth: 3,
+      currentBgColor: '#ffffff',
+      isFillMode: false,
+      showGrid: false,
+      startX: 0,
+      startY: 0,
+      history: [],
+      historyStep: -1,
+      tempCanvas: null,
+      tempCtx: null,
+      textInput: null
+    };
 
     // 슬래시 커맨드 데이터
     this.slashCommands = [
@@ -133,6 +192,18 @@ class WorkMessenger {
 
     // 소켓 연결 (서버가 있을 경우)
     this.connectSocket();
+
+    // 로딩 화면 숨기기 (부드러운 페이드아웃)
+    requestAnimationFrame(() => {
+      const loadingScreen = document.getElementById('loading-screen');
+      if (loadingScreen) {
+        loadingScreen.classList.add('hidden');
+        // 애니메이션 완료 후 DOM에서 제거
+        setTimeout(() => {
+          loadingScreen.remove();
+        }, 300);
+      }
+    });
 
     console.log('Work Messenger 초기화 완료');
   }
@@ -420,6 +491,18 @@ class WorkMessenger {
       contextMenu.style.display = 'none';
     });
 
+    // 이모티콘 리액션 피커
+    const reactionPicker = document.getElementById('emoji-picker');
+    document.addEventListener('click', (e) => {
+      if (!reactionPicker.contains(e.target) && !contextMenu.contains(e.target)) {
+        reactionPicker.style.display = 'none';
+      }
+    });
+
+    reactionPicker?.addEventListener('click', (e) => {
+      e.stopPropagation();
+    });
+
     // DND 모드 변경 리스너
     if (window.electronAPI) {
       window.electronAPI.onDndModeChanged((enabled) => {
@@ -499,6 +582,51 @@ class WorkMessenger {
         }
       }
     });
+
+    // 음성채팅 버튼
+    const btnVoiceChat = document.getElementById('btn-voice-chat');
+    btnVoiceChat?.addEventListener('click', () => {
+      this.openVoiceChatModal();
+    });
+
+    // 화면 공유 버튼
+    const btnScreenShare = document.getElementById('btn-screen-share');
+    btnScreenShare?.addEventListener('click', () => {
+      this.openScreenShareModal();
+    });
+
+    // 일정관리 버튼
+    const btnCalendar = document.getElementById('btn-calendar');
+    btnCalendar?.addEventListener('click', () => {
+      this.openCalendarModal();
+    });
+
+    // 마이페이지 버튼
+    const btnMyPage = document.getElementById('btn-my-page');
+    btnMyPage?.addEventListener('click', () => {
+      this.openMyPageModal();
+    });
+
+    // 화이트보드 버튼
+    const btnWhiteboard = document.getElementById('btn-whiteboard');
+    btnWhiteboard?.addEventListener('click', () => {
+      this.openWhiteboardModal();
+    });
+
+    // 음성채팅 모달 이벤트
+    this.setupVoiceChatEvents();
+
+    // 화면 공유 모달 이벤트
+    this.setupScreenShareEvents();
+
+    // 일정관리 모달 이벤트
+    this.setupCalendarEvents();
+
+    // 마이페이지 모달 이벤트
+    this.setupMyPageEvents();
+
+    // 화이트보드 모달 이벤트
+    this.setupWhiteboardEvents();
   }
 
   autoResizeTextarea(textarea) {
@@ -704,6 +832,21 @@ class WorkMessenger {
     // 리사이저 초기화
     this.initResizers();
 
+    // 서버별 멤버 초기화 (각 서버에 다른 멤버 설정)
+    this.serverMembers['server_1'] = [
+      { id: 'user_1', name: '박지민', avatar: '박', role: '팀장' },
+      { id: 'user_2', name: '최민준', avatar: '최', role: '개발자' },
+      { id: 'user_3', name: '김서연', avatar: '김', role: '디자이너' },
+      { id: 'user_4', name: '이준호', avatar: '이', role: '기획자' },
+      { id: 'user_5', name: '정수아', avatar: '정', role: 'QA' }
+    ];
+
+    this.serverMembers['server_2'] = [
+      { id: 'user_6', name: '강민수', avatar: '강', role: '개발자' },
+      { id: 'user_7', name: '윤지우', avatar: '윤', role: '마케터' },
+      { id: 'user_8', name: '송하늘', avatar: '송', role: '디자이너' }
+    ];
+
     this.renderServerList();
   }
 
@@ -816,6 +959,10 @@ class WorkMessenger {
     }
 
     this.servers.push(newServer);
+
+    // 새 서버에 기본 멤버 할당
+    this.serverMembers[newServer.id] = [...this.defaultMembers];
+
     this.renderServerList();
     this.selectServer(newServer);
   }
@@ -1051,8 +1198,11 @@ class WorkMessenger {
     // 패널 표시
     panel.style.display = 'flex';
 
+    // 현재 서버의 멤버 가져오기 (없으면 기본 멤버 사용)
+    const members = this.serverMembers[this.currentServer.id] || this.defaultMembers;
+
     // 멤버 목록 렌더링
-    list.innerHTML = this.members.map(member => `
+    list.innerHTML = members.map(member => `
       <div class="member-item" title="${member.name}">
         <div class="member-item-avatar">${member.avatar}</div>
         <div class="member-item-info">
@@ -1369,6 +1519,7 @@ class WorkMessenger {
           </div>
           ${msg.content ? `<div class="message-bubble">${this.formatMessage(msg.content)}</div>` : ''}
           ${filesHTML}
+          ${this.renderMessageReactions(msg.id, channelId)}
         </div>
       `;
 
@@ -1376,6 +1527,17 @@ class WorkMessenger {
       msgEl.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         this.showContextMenu(e, msg, channelId);
+      });
+
+      // 리액션 클릭 이벤트
+      const reactionItems = msgEl.querySelectorAll('.reaction-item');
+      reactionItems.forEach(item => {
+        item.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const messageId = parseInt(item.dataset.messageId);
+          const emoji = item.dataset.emoji;
+          this.toggleReaction(messageId, channelId, emoji);
+        });
       });
 
       container.appendChild(msgEl);
@@ -1781,6 +1943,9 @@ class WorkMessenger {
     const { message, channelId } = target;
 
     switch (action) {
+      case 'reaction':
+        this.showEmojiPicker(message, channelId);
+        break;
       case 'pin':
         this.togglePinMessage(message.id, channelId);
         break;
@@ -1992,8 +2157,119 @@ class WorkMessenger {
         }
       }
 
+      // 리액션도 제거
+      if (this.reactions[channelId] && this.reactions[channelId][messageId]) {
+        delete this.reactions[channelId][messageId];
+      }
+
       this.renderMessages(channelId);
     }
+  }
+
+  // 이모티콘 선택 팝업 표시
+  showEmojiPicker(message, channelId) {
+    const picker = document.getElementById('emoji-picker');
+    const contextMenu = document.getElementById('message-context-menu');
+
+    // 컨텍스트 메뉴 위치 가져오기
+    const rect = contextMenu.getBoundingClientRect();
+
+    // 팝업 표시
+    picker.style.display = 'block';
+    picker.style.left = rect.left + 'px';
+    picker.style.top = (rect.top + rect.height + 5) + 'px';
+
+    // 화면 밖으로 나가지 않도록 조정
+    setTimeout(() => {
+      const pickerRect = picker.getBoundingClientRect();
+      if (pickerRect.right > window.innerWidth) {
+        picker.style.left = (window.innerWidth - pickerRect.width - 10) + 'px';
+      }
+      if (pickerRect.bottom > window.innerHeight) {
+        picker.style.top = (rect.top - pickerRect.height - 5) + 'px';
+      }
+    }, 0);
+
+    // 이모지 버튼에 이벤트 리스너 추가
+    const emojiButtons = picker.querySelectorAll('.emoji-btn');
+    const handleEmojiClick = (e) => {
+      const emoji = e.currentTarget.dataset.emoji;
+      this.toggleReaction(message.id, channelId, emoji);
+      picker.style.display = 'none';
+
+      // 이벤트 리스너 제거
+      emojiButtons.forEach(btn => btn.removeEventListener('click', handleEmojiClick));
+    };
+
+    emojiButtons.forEach(btn => {
+      btn.addEventListener('click', handleEmojiClick);
+    });
+
+    // 컨텍스트 메뉴 숨김
+    contextMenu.style.display = 'none';
+  }
+
+  // 리액션 토글 (추가/제거)
+  toggleReaction(messageId, channelId, emoji) {
+    if (!this.reactions[channelId]) {
+      this.reactions[channelId] = {};
+    }
+    if (!this.reactions[channelId][messageId]) {
+      this.reactions[channelId][messageId] = {};
+    }
+
+    const messageReactions = this.reactions[channelId][messageId];
+    const userId = this.user.id;
+
+    if (!messageReactions[emoji]) {
+      messageReactions[emoji] = [];
+    }
+
+    const userIndex = messageReactions[emoji].indexOf(userId);
+    if (userIndex !== -1) {
+      // 리액션 제거
+      messageReactions[emoji].splice(userIndex, 1);
+      // 아무도 이 이모지를 사용하지 않으면 삭제
+      if (messageReactions[emoji].length === 0) {
+        delete messageReactions[emoji];
+      }
+    } else {
+      // 리액션 추가
+      messageReactions[emoji].push(userId);
+    }
+
+    this.renderMessages(channelId);
+  }
+
+  // 메시지의 리액션 HTML 생성
+  renderMessageReactions(messageId, channelId) {
+    if (!this.reactions[channelId] || !this.reactions[channelId][messageId]) {
+      return '';
+    }
+
+    const messageReactions = this.reactions[channelId][messageId];
+    const emojis = Object.keys(messageReactions);
+
+    if (emojis.length === 0) {
+      return '';
+    }
+
+    const userId = this.user.id;
+    const reactionsHtml = emojis.map(emoji => {
+      const users = messageReactions[emoji];
+      const count = users.length;
+      const hasReacted = users.includes(userId);
+      const reactedClass = hasReacted ? 'reacted' : '';
+
+      return `
+        <button class="reaction-item ${reactedClass}" data-message-id="${messageId}" data-emoji="${emoji}">
+          <span class="emoji">${emoji}</span>
+          <span class="count">${count}</span>
+        </button>
+      `;
+    }).join('');
+
+    return `<div class="message-reactions">${reactionsHtml}</div>`;
   }
 
   // ========================================
@@ -2736,6 +3012,1137 @@ class WorkMessenger {
     resizer.addEventListener('mousedown', handleMouseDown);
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
+  }
+
+  // ========================================
+  // 음성채팅 기능
+  // ========================================
+  openVoiceChatModal() {
+    const modal = document.getElementById('voice-chat-modal');
+    modal.style.display = 'flex';
+    this.startVoiceChat();
+  }
+
+  setupVoiceChatEvents() {
+    const modal = document.getElementById('voice-chat-modal');
+    const closeBtn = document.getElementById('close-voice-chat');
+    const minimizeBtn = document.getElementById('minimize-voice-chat');
+    const toggleMic = document.getElementById('btn-toggle-mic');
+    const toggleSpeaker = document.getElementById('btn-toggle-speaker');
+    const leaveVoice = document.getElementById('btn-leave-voice');
+
+    closeBtn?.addEventListener('click', () => {
+      modal.style.display = 'none';
+      this.stopVoiceChat();
+    });
+
+    minimizeBtn?.addEventListener('click', () => {
+      this.minimizeVoiceChat();
+    });
+
+    modal?.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.style.display = 'none';
+        this.stopVoiceChat();
+      }
+    });
+
+    toggleMic?.addEventListener('click', () => {
+      this.toggleMicrophone();
+    });
+
+    toggleSpeaker?.addEventListener('click', () => {
+      this.toggleSpeaker();
+    });
+
+    leaveVoice?.addEventListener('click', () => {
+      modal.style.display = 'none';
+      this.stopVoiceChat();
+    });
+
+    // 축소된 창 복원 버튼
+    const restoreBtns = document.querySelectorAll('[data-restore="voice-chat"]');
+    restoreBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.restoreVoiceChat();
+      });
+    });
+  }
+
+  startVoiceChat() {
+    this.voiceChat.isActive = true;
+    this.voiceChat.startTime = Date.now();
+    this.voiceChat.participants = [
+      { id: this.user.id, name: this.user.name, avatar: this.user.avatar, isMuted: false }
+    ];
+
+    // 타이머 시작
+    this.updateVoiceTimer();
+    this.voiceTimerInterval = setInterval(() => {
+      this.updateVoiceTimer();
+    }, 1000);
+
+    // 참여자 렌더링
+    this.renderVoiceParticipants();
+
+    // 상태 업데이트
+    const statusText = document.getElementById('voice-status-text');
+    if (statusText) {
+      statusText.textContent = '음성채팅에 연결되었습니다';
+    }
+  }
+
+  stopVoiceChat() {
+    this.voiceChat.isActive = false;
+    this.voiceChat.startTime = null;
+    this.voiceChat.participants = [];
+
+    if (this.voiceTimerInterval) {
+      clearInterval(this.voiceTimerInterval);
+      this.voiceTimerInterval = null;
+    }
+
+    // 타이머 리셋
+    const timer = document.getElementById('voice-timer');
+    if (timer) {
+      timer.textContent = '00:00';
+    }
+
+    // 축소된 창도 숨기기
+    const minimizedWindow = document.getElementById('minimized-voice-chat');
+    if (minimizedWindow) minimizedWindow.style.display = 'none';
+  }
+
+  updateVoiceTimer() {
+    if (!this.voiceChat.startTime) return;
+
+    const elapsed = Math.floor((Date.now() - this.voiceChat.startTime) / 1000);
+    const minutes = Math.floor(elapsed / 60);
+    const seconds = elapsed % 60;
+    const timeString = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+
+    const timer = document.getElementById('voice-timer');
+    if (timer) {
+      timer.textContent = timeString;
+    }
+
+    // 축소된 창의 타이머도 업데이트
+    const minimizedTimer = document.getElementById('minimized-voice-timer');
+    if (minimizedTimer) {
+      minimizedTimer.textContent = timeString;
+    }
+  }
+
+  renderVoiceParticipants() {
+    const container = document.getElementById('voice-participants');
+    if (!container) return;
+
+    container.innerHTML = this.voiceChat.participants.map(p => `
+      <div class="voice-participant">
+        <div class="voice-participant-avatar">${p.avatar}</div>
+        <div class="voice-participant-info">
+          <div class="voice-participant-name">${p.name}</div>
+          <div class="voice-participant-status">${p.isMuted ? '음소거됨' : '말하는 중...'}</div>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  toggleMicrophone() {
+    this.voiceChat.isMuted = !this.voiceChat.isMuted;
+    const btn = document.getElementById('btn-toggle-mic');
+    if (btn) {
+      btn.classList.toggle('active', this.voiceChat.isMuted);
+      const span = btn.querySelector('span');
+      if (span) {
+        span.textContent = this.voiceChat.isMuted ? '음소거 해제' : '음소거';
+      }
+    }
+  }
+
+  toggleSpeaker() {
+    this.voiceChat.isSpeakerOn = !this.voiceChat.isSpeakerOn;
+    const btn = document.getElementById('btn-toggle-speaker');
+    if (btn) {
+      btn.classList.toggle('active', !this.voiceChat.isSpeakerOn);
+    }
+  }
+
+  minimizeVoiceChat() {
+    const modal = document.getElementById('voice-chat-modal');
+    const minimizedWindow = document.getElementById('minimized-voice-chat');
+
+    modal.style.display = 'none';
+    minimizedWindow.style.display = 'block';
+  }
+
+  restoreVoiceChat() {
+    const modal = document.getElementById('voice-chat-modal');
+    const minimizedWindow = document.getElementById('minimized-voice-chat');
+
+    modal.style.display = 'flex';
+    minimizedWindow.style.display = 'none';
+  }
+
+  // ========================================
+  // 화면 공유 기능
+  // ========================================
+  openScreenShareModal() {
+    const modal = document.getElementById('screen-share-modal');
+    modal.style.display = 'flex';
+  }
+
+  setupScreenShareEvents() {
+    const modal = document.getElementById('screen-share-modal');
+    const closeBtn = document.getElementById('close-screen-share');
+    const minimizeBtn = document.getElementById('minimize-screen-share');
+    const shareEntireScreen = document.getElementById('share-entire-screen');
+    const shareWindow = document.getElementById('share-window');
+    const shareTab = document.getElementById('share-tab');
+    const stopShare = document.getElementById('btn-stop-share');
+
+    closeBtn?.addEventListener('click', () => {
+      modal.style.display = 'none';
+      this.stopScreenShare();
+    });
+
+    minimizeBtn?.addEventListener('click', () => {
+      this.minimizeScreenShare();
+    });
+
+    modal?.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.style.display = 'none';
+        this.stopScreenShare();
+      }
+    });
+
+    shareEntireScreen?.addEventListener('click', () => {
+      this.startScreenShare('screen');
+    });
+
+    shareWindow?.addEventListener('click', () => {
+      this.startScreenShare('window');
+    });
+
+    shareTab?.addEventListener('click', () => {
+      this.startScreenShare('tab');
+    });
+
+    stopShare?.addEventListener('click', () => {
+      this.stopScreenShare();
+    });
+
+    // 축소된 창 복원 버튼
+    const restoreBtns = document.querySelectorAll('[data-restore="screen-share"]');
+    restoreBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.restoreScreenShare();
+      });
+    });
+  }
+
+  async startScreenShare(type) {
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { cursor: 'always' },
+        audio: false
+      });
+
+      this.screenShare.isSharing = true;
+      this.screenShare.stream = stream;
+
+      // 옵션 숨기고 프리뷰 표시
+      const options = document.querySelector('.screen-share-options');
+      const preview = document.getElementById('screen-preview');
+      const video = document.getElementById('screen-video');
+
+      if (options) options.style.display = 'none';
+      if (preview) preview.style.display = 'block';
+      if (video) video.srcObject = stream;
+
+      // 스트림이 종료되면 자동으로 정리
+      stream.getVideoTracks()[0].addEventListener('ended', () => {
+        this.stopScreenShare();
+      });
+
+    } catch (err) {
+      console.error('화면 공유 시작 실패:', err);
+      alert('화면 공유를 시작할 수 없습니다.');
+    }
+  }
+
+  stopScreenShare() {
+    if (this.screenShare.stream) {
+      this.screenShare.stream.getTracks().forEach(track => track.stop());
+      this.screenShare.stream = null;
+    }
+
+    this.screenShare.isSharing = false;
+
+    // UI 리셋
+    const options = document.querySelector('.screen-share-options');
+    const preview = document.getElementById('screen-preview');
+    const video = document.getElementById('screen-video');
+
+    if (options) options.style.display = 'grid';
+    if (preview) preview.style.display = 'none';
+    if (video) video.srcObject = null;
+
+    // 축소된 창도 숨기기
+    const minimizedWindow = document.getElementById('minimized-screen-share');
+    if (minimizedWindow) minimizedWindow.style.display = 'none';
+  }
+
+  minimizeScreenShare() {
+    const modal = document.getElementById('screen-share-modal');
+    const minimizedWindow = document.getElementById('minimized-screen-share');
+
+    modal.style.display = 'none';
+    minimizedWindow.style.display = 'block';
+  }
+
+  restoreScreenShare() {
+    const modal = document.getElementById('screen-share-modal');
+    const minimizedWindow = document.getElementById('minimized-screen-share');
+
+    modal.style.display = 'flex';
+    minimizedWindow.style.display = 'none';
+  }
+
+  // ========================================
+  // 일정관리 달력 기능
+  // ========================================
+  openCalendarModal() {
+    const modal = document.getElementById('calendar-modal');
+    modal.style.display = 'flex';
+    this.renderCalendar();
+    this.renderEvents();
+  }
+
+  setupCalendarEvents() {
+    const modal = document.getElementById('calendar-modal');
+    const closeBtn = document.getElementById('close-calendar');
+    const prevMonth = document.getElementById('prev-month');
+    const nextMonth = document.getElementById('next-month');
+    const addEventBtn = document.getElementById('btn-add-event');
+
+    closeBtn?.addEventListener('click', () => {
+      modal.style.display = 'none';
+    });
+
+    modal?.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.style.display = 'none';
+      }
+    });
+
+    prevMonth?.addEventListener('click', () => {
+      this.calendar.currentMonth--;
+      if (this.calendar.currentMonth < 0) {
+        this.calendar.currentMonth = 11;
+        this.calendar.currentYear--;
+      }
+      this.renderCalendar();
+    });
+
+    nextMonth?.addEventListener('click', () => {
+      this.calendar.currentMonth++;
+      if (this.calendar.currentMonth > 11) {
+        this.calendar.currentMonth = 0;
+        this.calendar.currentYear++;
+      }
+      this.renderCalendar();
+    });
+
+    addEventBtn?.addEventListener('click', () => {
+      this.openAddEventModal();
+    });
+
+    // 일정 추가 모달 이벤트
+    this.setupAddEventEvents();
+  }
+
+  setupAddEventEvents() {
+    const modal = document.getElementById('add-event-modal');
+    const closeBtn = document.getElementById('close-add-event');
+    const cancelBtn = document.getElementById('cancel-event');
+    const saveBtn = document.getElementById('save-event');
+
+    closeBtn?.addEventListener('click', () => {
+      modal.style.display = 'none';
+    });
+
+    cancelBtn?.addEventListener('click', () => {
+      modal.style.display = 'none';
+    });
+
+    modal?.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.style.display = 'none';
+      }
+    });
+
+    saveBtn?.addEventListener('click', () => {
+      this.saveEvent();
+    });
+  }
+
+  renderCalendar() {
+    const year = this.calendar.currentYear;
+    const month = this.calendar.currentMonth;
+
+    // 월 표시 업데이트
+    const monthElement = document.getElementById('current-month');
+    if (monthElement) {
+      monthElement.textContent = `${year}년 ${month + 1}월`;
+    }
+
+    // 달력 날짜 생성
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const daysInPrevMonth = new Date(year, month, 0).getDate();
+
+    const daysContainer = document.getElementById('calendar-days');
+    if (!daysContainer) return;
+
+    let html = '';
+
+    // 이전 달 날짜
+    for (let i = firstDay - 1; i >= 0; i--) {
+      html += `<div class="calendar-day other-month">${daysInPrevMonth - i}</div>`;
+    }
+
+    // 현재 달 날짜
+    const today = new Date();
+    for (let day = 1; day <= daysInMonth; day++) {
+      const isToday = year === today.getFullYear() &&
+                      month === today.getMonth() &&
+                      day === today.getDate();
+      const hasEvent = this.calendar.events.some(e => {
+        const eventDate = new Date(e.date);
+        return eventDate.getFullYear() === year &&
+               eventDate.getMonth() === month &&
+               eventDate.getDate() === day;
+      });
+
+      const classes = ['calendar-day'];
+      if (isToday) classes.push('today');
+      if (hasEvent) classes.push('has-event');
+
+      html += `<div class="${classes.join(' ')}" data-date="${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}">${day}</div>`;
+    }
+
+    // 다음 달 날짜
+    const remainingDays = 42 - (firstDay + daysInMonth);
+    for (let day = 1; day <= remainingDays; day++) {
+      html += `<div class="calendar-day other-month">${day}</div>`;
+    }
+
+    daysContainer.innerHTML = html;
+
+    // 날짜 클릭 이벤트
+    daysContainer.querySelectorAll('.calendar-day:not(.other-month)').forEach(dayEl => {
+      dayEl.addEventListener('click', () => {
+        daysContainer.querySelectorAll('.calendar-day').forEach(d => d.classList.remove('selected'));
+        dayEl.classList.add('selected');
+        this.calendar.selectedDate = dayEl.dataset.date;
+        this.renderEvents();
+      });
+    });
+  }
+
+  renderEvents() {
+    const container = document.getElementById('events-list');
+    if (!container) return;
+
+    let events = this.calendar.events;
+
+    // 선택된 날짜가 있으면 필터링
+    if (this.calendar.selectedDate) {
+      events = events.filter(e => e.date === this.calendar.selectedDate);
+    }
+
+    if (events.length === 0) {
+      container.innerHTML = '<p style="text-align: center; color: var(--text-secondary); padding: 20px;">일정이 없습니다</p>';
+      return;
+    }
+
+    container.innerHTML = events.map(event => `
+      <div class="event-item">
+        <div class="event-time">${event.time || '종일'}</div>
+        <div class="event-details">
+          <div class="event-title">${event.title}</div>
+          ${event.description ? `<div class="event-description">${event.description}</div>` : ''}
+        </div>
+      </div>
+    `).join('');
+  }
+
+  openAddEventModal() {
+    const modal = document.getElementById('add-event-modal');
+    modal.style.display = 'flex';
+
+    // 선택된 날짜가 있으면 자동 입력
+    if (this.calendar.selectedDate) {
+      const dateInput = document.getElementById('event-date');
+      if (dateInput) {
+        dateInput.value = this.calendar.selectedDate;
+      }
+    }
+  }
+
+  saveEvent() {
+    const title = document.getElementById('event-title').value.trim();
+    const date = document.getElementById('event-date').value;
+    const time = document.getElementById('event-time').value;
+    const description = document.getElementById('event-description').value.trim();
+
+    if (!title || !date) {
+      alert('제목과 날짜를 입력해주세요.');
+      return;
+    }
+
+    const event = {
+      id: 'event_' + Date.now(),
+      title,
+      date,
+      time,
+      description
+    };
+
+    this.calendar.events.push(event);
+
+    // 모달 닫기
+    const modal = document.getElementById('add-event-modal');
+    modal.style.display = 'none';
+
+    // 입력 필드 초기화
+    document.getElementById('event-title').value = '';
+    document.getElementById('event-date').value = '';
+    document.getElementById('event-time').value = '';
+    document.getElementById('event-description').value = '';
+
+    // 달력과 일정 목록 업데이트
+    this.renderCalendar();
+    this.renderEvents();
+  }
+
+  // ========================================
+  // 마이페이지 기능
+  // ========================================
+  openMyPageModal() {
+    const modal = document.getElementById('mypage-modal');
+    modal.style.display = 'flex';
+
+    // 현재 프로필 정보 로드
+    this.loadProfileData();
+  }
+
+  setupMyPageEvents() {
+    const modal = document.getElementById('mypage-modal');
+    const closeBtn = document.getElementById('close-mypage');
+    const cancelBtn = document.getElementById('cancel-profile');
+    const saveBtn = document.getElementById('save-profile');
+    const statusBtns = document.querySelectorAll('.status-btn');
+
+    closeBtn?.addEventListener('click', () => {
+      modal.style.display = 'none';
+    });
+
+    cancelBtn?.addEventListener('click', () => {
+      modal.style.display = 'none';
+    });
+
+    modal?.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.style.display = 'none';
+      }
+    });
+
+    saveBtn?.addEventListener('click', () => {
+      this.saveProfile();
+    });
+
+    statusBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        statusBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const status = btn.dataset.status;
+        this.updateUserStatus(status);
+      });
+    });
+  }
+
+  loadProfileData() {
+    const nameElement = document.getElementById('profile-name');
+    const avatarText = document.getElementById('profile-avatar-text');
+    const nameInput = document.getElementById('profile-name-input');
+    const statusMsg = document.getElementById('profile-status-msg');
+    const email = document.getElementById('profile-email');
+    const phone = document.getElementById('profile-phone');
+
+    if (nameElement) nameElement.textContent = this.profile.name;
+    if (avatarText) avatarText.textContent = this.profile.name[0] || 'U';
+    if (nameInput) nameInput.value = this.profile.name;
+    if (statusMsg) statusMsg.value = this.profile.statusMessage;
+    if (email) email.value = this.profile.email;
+    if (phone) phone.value = this.profile.phone;
+
+    // 현재 상태 버튼 활성화
+    document.querySelectorAll('.status-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.status === this.profile.status);
+    });
+  }
+
+  saveProfile() {
+    const nameInput = document.getElementById('profile-name-input').value.trim();
+    const statusMsg = document.getElementById('profile-status-msg').value.trim();
+    const email = document.getElementById('profile-email').value.trim();
+    const phone = document.getElementById('profile-phone').value.trim();
+
+    if (!nameInput) {
+      alert('이름을 입력해주세요.');
+      return;
+    }
+
+    this.profile.name = nameInput;
+    this.profile.statusMessage = statusMsg;
+    this.profile.email = email;
+    this.profile.phone = phone;
+
+    // 사용자 정보 업데이트
+    this.user.name = nameInput;
+    this.user.avatar = nameInput[0] || 'U';
+
+    // UI 업데이트
+    const userAvatar = document.getElementById('user-avatar');
+    if (userAvatar) {
+      const span = userAvatar.querySelector('span');
+      if (span) span.textContent = this.user.avatar;
+    }
+
+    // 모달 닫기
+    const modal = document.getElementById('mypage-modal');
+    modal.style.display = 'none';
+
+    alert('프로필이 저장되었습니다.');
+  }
+
+  updateUserStatus(status) {
+    this.profile.status = status;
+    this.user.status = status;
+
+    // 상태 표시 업데이트
+    const statusIndicator = document.getElementById('user-status-indicator');
+    if (statusIndicator) {
+      statusIndicator.className = 'user-status ' + status;
+    }
+  }
+
+  // ========================================
+  // 화이트보드 기능
+  // ========================================
+  openWhiteboardModal() {
+    const modal = document.getElementById('whiteboard-modal');
+    modal.style.display = 'flex';
+
+    // 캔버스 초기화
+    setTimeout(() => {
+      this.initWhiteboardCanvas();
+    }, 100);
+  }
+
+  setupWhiteboardEvents() {
+    const modal = document.getElementById('whiteboard-modal');
+    const closeBtn = document.getElementById('close-whiteboard');
+
+    closeBtn?.addEventListener('click', () => {
+      modal.style.display = 'none';
+    });
+
+    modal?.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.style.display = 'none';
+      }
+    });
+
+    // 도구 버튼들
+    document.querySelectorAll('[data-tool]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('[data-tool]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.whiteboard.currentTool = btn.dataset.tool;
+
+        // 도구에 따라 커서 변경
+        const canvas = this.whiteboard.canvas;
+        if (canvas) {
+          if (this.whiteboard.currentTool === 'eraser') {
+            canvas.style.cursor = 'pointer';
+          } else {
+            canvas.style.cursor = 'crosshair';
+          }
+        }
+      });
+    });
+
+    // 색상 선택
+    const colorPicker = document.getElementById('wb-color');
+    colorPicker?.addEventListener('input', (e) => {
+      this.whiteboard.currentColor = e.target.value;
+    });
+
+    // 굵기 조절
+    const widthSlider = document.getElementById('wb-width');
+    const widthValue = document.getElementById('wb-width-value');
+    widthSlider?.addEventListener('input', (e) => {
+      this.whiteboard.currentWidth = parseInt(e.target.value);
+      if (widthValue) {
+        widthValue.textContent = e.target.value;
+      }
+    });
+
+    // 채우기 모드
+    const fillCheckbox = document.getElementById('wb-fill');
+    fillCheckbox?.addEventListener('change', (e) => {
+      this.whiteboard.isFillMode = e.target.checked;
+    });
+
+    // 배경 색상
+    const bgColorPicker = document.getElementById('wb-bg-color');
+    bgColorPicker?.addEventListener('input', (e) => {
+      this.whiteboard.currentBgColor = e.target.value;
+      this.updateWhiteboardBackground();
+    });
+
+    // 그리드 표시
+    const gridCheckbox = document.getElementById('wb-grid');
+    gridCheckbox?.addEventListener('change', (e) => {
+      this.whiteboard.showGrid = e.target.checked;
+      this.redrawWhiteboard();
+    });
+
+    // 이미지 업로드
+    const uploadBtn = document.getElementById('wb-upload-image');
+    const imageInput = document.getElementById('wb-image-input');
+    uploadBtn?.addEventListener('click', () => {
+      imageInput?.click();
+    });
+    imageInput?.addEventListener('change', (e) => {
+      this.uploadImageToWhiteboard(e);
+    });
+
+    // 전체 지우기
+    document.getElementById('wb-clear')?.addEventListener('click', () => {
+      if (confirm('모든 내용을 지우시겠습니까?')) {
+        this.clearWhiteboard();
+      }
+    });
+
+    // 실행 취소
+    document.getElementById('wb-undo')?.addEventListener('click', () => {
+      this.undoWhiteboard();
+    });
+
+    // 다시 실행
+    document.getElementById('wb-redo')?.addEventListener('click', () => {
+      this.redoWhiteboard();
+    });
+
+    // 다운로드
+    document.getElementById('wb-download')?.addEventListener('click', () => {
+      this.downloadWhiteboard();
+    });
+  }
+
+  initWhiteboardCanvas() {
+    const canvas = document.getElementById('whiteboard-canvas');
+    if (!canvas) return;
+
+    // 캔버스 크기 설정
+    const container = canvas.parentElement;
+    const containerWidth = container.clientWidth;
+    const containerHeight = container.clientHeight;
+
+    canvas.width = Math.min(containerWidth - 40, 1200);
+    canvas.height = Math.min(containerHeight - 40, 800);
+
+    this.whiteboard.canvas = canvas;
+    this.whiteboard.ctx = canvas.getContext('2d');
+
+    // 임시 캔버스 생성 (도형 그리기용)
+    this.whiteboard.tempCanvas = document.createElement('canvas');
+    this.whiteboard.tempCanvas.width = canvas.width;
+    this.whiteboard.tempCanvas.height = canvas.height;
+    this.whiteboard.tempCtx = this.whiteboard.tempCanvas.getContext('2d');
+
+    // 초기 배경 설정
+    this.whiteboard.ctx.fillStyle = 'white';
+    this.whiteboard.ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // 초기 히스토리 저장
+    this.saveWhiteboardState();
+
+    // 이벤트 리스너
+    canvas.addEventListener('mousedown', (e) => this.startDrawing(e));
+    canvas.addEventListener('mousemove', (e) => this.draw(e));
+    canvas.addEventListener('mouseup', () => this.stopDrawing());
+    canvas.addEventListener('mouseout', () => this.stopDrawing());
+  }
+
+  getCanvasCoords(e) {
+    const canvas = this.whiteboard.canvas;
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
+    };
+  }
+
+  startDrawing(e) {
+    const coords = this.getCanvasCoords(e);
+    this.whiteboard.startX = coords.x;
+    this.whiteboard.startY = coords.y;
+
+    // 텍스트 도구는 클릭 시 입력창 표시
+    if (this.whiteboard.currentTool === 'text') {
+      this.addTextToWhiteboard(coords.x, coords.y);
+      return;
+    }
+
+    this.whiteboard.isDrawing = true;
+    const ctx = this.whiteboard.ctx;
+    ctx.strokeStyle = this.whiteboard.currentColor;
+    ctx.fillStyle = this.whiteboard.currentColor;
+    ctx.lineWidth = this.whiteboard.currentWidth;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    if (this.whiteboard.currentTool === 'pen') {
+      ctx.beginPath();
+      ctx.moveTo(coords.x, coords.y);
+    } else if (this.whiteboard.currentTool === 'eraser') {
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.beginPath();
+      ctx.moveTo(coords.x, coords.y);
+    }
+  }
+
+  draw(e) {
+    if (!this.whiteboard.isDrawing) return;
+
+    const coords = this.getCanvasCoords(e);
+    const ctx = this.whiteboard.ctx;
+    const tempCtx = this.whiteboard.tempCtx;
+
+    if (this.whiteboard.currentTool === 'pen') {
+      ctx.lineTo(coords.x, coords.y);
+      ctx.stroke();
+    } else if (this.whiteboard.currentTool === 'eraser') {
+      ctx.lineTo(coords.x, coords.y);
+      ctx.stroke();
+    } else if (['line', 'rectangle', 'circle'].includes(this.whiteboard.currentTool)) {
+      // 도형은 임시 캔버스에 그리기
+      const canvas = this.whiteboard.canvas;
+      tempCtx.clearRect(0, 0, canvas.width, canvas.height);
+      tempCtx.strokeStyle = this.whiteboard.currentColor;
+      tempCtx.fillStyle = this.whiteboard.currentColor;
+      tempCtx.lineWidth = this.whiteboard.currentWidth;
+      tempCtx.lineCap = 'round';
+
+      if (this.whiteboard.currentTool === 'line') {
+        tempCtx.beginPath();
+        tempCtx.moveTo(this.whiteboard.startX, this.whiteboard.startY);
+        tempCtx.lineTo(coords.x, coords.y);
+        tempCtx.stroke();
+      } else if (this.whiteboard.currentTool === 'rectangle') {
+        const width = coords.x - this.whiteboard.startX;
+        const height = coords.y - this.whiteboard.startY;
+        if (this.whiteboard.isFillMode) {
+          tempCtx.fillRect(this.whiteboard.startX, this.whiteboard.startY, width, height);
+        } else {
+          tempCtx.strokeRect(this.whiteboard.startX, this.whiteboard.startY, width, height);
+        }
+      } else if (this.whiteboard.currentTool === 'circle') {
+        const radius = Math.sqrt(
+          Math.pow(coords.x - this.whiteboard.startX, 2) +
+          Math.pow(coords.y - this.whiteboard.startY, 2)
+        );
+        tempCtx.beginPath();
+        tempCtx.arc(this.whiteboard.startX, this.whiteboard.startY, radius, 0, 2 * Math.PI);
+        if (this.whiteboard.isFillMode) {
+          tempCtx.fill();
+        } else {
+          tempCtx.stroke();
+        }
+      }
+
+      // 메인 캔버스에 임시 캔버스 합성
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      ctx.putImageData(imageData, 0, 0);
+      ctx.drawImage(this.whiteboard.tempCanvas, 0, 0);
+    }
+  }
+
+  stopDrawing() {
+    if (!this.whiteboard.isDrawing) return;
+    this.whiteboard.isDrawing = false;
+
+    const ctx = this.whiteboard.ctx;
+
+    // 지우개 모드 해제
+    if (this.whiteboard.currentTool === 'eraser') {
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    // 도형 그리기 완료
+    if (['line', 'rectangle', 'circle'].includes(this.whiteboard.currentTool)) {
+      const canvas = this.whiteboard.canvas;
+      ctx.drawImage(this.whiteboard.tempCanvas, 0, 0);
+      this.whiteboard.tempCtx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    // 히스토리 저장
+    this.saveWhiteboardState();
+  }
+
+  saveWhiteboardState() {
+    const canvas = this.whiteboard.canvas;
+    if (!canvas) return;
+
+    // 현재 상태 이후의 히스토리 제거
+    this.whiteboard.history = this.whiteboard.history.slice(0, this.whiteboard.historyStep + 1);
+
+    // 현재 상태 저장
+    this.whiteboard.history.push(canvas.toDataURL());
+    this.whiteboard.historyStep++;
+
+    // 히스토리 최대 50개로 제한
+    if (this.whiteboard.history.length > 50) {
+      this.whiteboard.history.shift();
+      this.whiteboard.historyStep--;
+    }
+  }
+
+  clearWhiteboard() {
+    const ctx = this.whiteboard.ctx;
+    const canvas = this.whiteboard.canvas;
+    if (!ctx || !canvas) return;
+
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    this.saveWhiteboardState();
+  }
+
+  undoWhiteboard() {
+    if (this.whiteboard.historyStep > 0) {
+      this.whiteboard.historyStep--;
+      this.restoreWhiteboardState();
+    }
+  }
+
+  redoWhiteboard() {
+    if (this.whiteboard.historyStep < this.whiteboard.history.length - 1) {
+      this.whiteboard.historyStep++;
+      this.restoreWhiteboardState();
+    }
+  }
+
+  restoreWhiteboardState() {
+    const canvas = this.whiteboard.canvas;
+    const ctx = this.whiteboard.ctx;
+    const state = this.whiteboard.history[this.whiteboard.historyStep];
+
+    if (!canvas || !ctx || !state) return;
+
+    const img = new Image();
+    img.onload = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0);
+    };
+    img.src = state;
+  }
+
+  downloadWhiteboard() {
+    const canvas = this.whiteboard.canvas;
+    if (!canvas) return;
+
+    const link = document.createElement('a');
+    link.download = `whiteboard-${Date.now()}.png`;
+    link.href = canvas.toDataURL();
+    link.click();
+  }
+
+  // 텍스트 추가
+  addTextToWhiteboard(x, y) {
+    // 기존 텍스트 입력창이 있으면 제거
+    if (this.whiteboard.textInput) {
+      this.whiteboard.textInput.remove();
+      this.whiteboard.textInput = null;
+    }
+
+    const canvas = this.whiteboard.canvas;
+    const canvasContainer = canvas.parentElement;
+
+    // 텍스트 입력창 생성
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.style.position = 'absolute';
+    input.style.left = `${canvas.offsetLeft + x}px`;
+    input.style.top = `${canvas.offsetTop + y}px`;
+    input.style.fontSize = '16px';
+    input.style.padding = '4px 8px';
+    input.style.border = '2px solid ' + this.whiteboard.currentColor;
+    input.style.borderRadius = '4px';
+    input.style.backgroundColor = 'white';
+    input.style.color = this.whiteboard.currentColor;
+    input.style.outline = 'none';
+    input.style.fontFamily = 'Arial, sans-serif';
+    input.style.zIndex = '1000';
+
+    this.whiteboard.textInput = input;
+    canvasContainer.appendChild(input);
+    input.focus();
+
+    // 엔터 키 또는 포커스 아웃 시 텍스트를 캔버스에 그리기
+    const drawText = () => {
+      const text = input.value.trim();
+      if (text) {
+        const ctx = this.whiteboard.ctx;
+        ctx.font = '16px Arial, sans-serif';
+        ctx.fillStyle = this.whiteboard.currentColor;
+        ctx.textBaseline = 'top';
+        ctx.fillText(text, x, y);
+        this.saveWhiteboardState();
+      }
+      input.remove();
+      this.whiteboard.textInput = null;
+    };
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        drawText();
+      } else if (e.key === 'Escape') {
+        input.remove();
+        this.whiteboard.textInput = null;
+      }
+    });
+
+    input.addEventListener('blur', drawText);
+  }
+
+  // 배경 색상 업데이트
+  updateWhiteboardBackground() {
+    const canvas = this.whiteboard.canvas;
+    const ctx = this.whiteboard.ctx;
+    if (!canvas || !ctx) return;
+
+    // 현재 내용 저장
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+    // 배경 색상 변경
+    ctx.fillStyle = this.whiteboard.currentBgColor;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // 이전 내용 복원
+    ctx.putImageData(imageData, 0, 0);
+
+    this.redrawWhiteboard();
+    this.saveWhiteboardState();
+  }
+
+  // 캔버스 다시 그리기 (그리드 포함)
+  redrawWhiteboard() {
+    const canvas = this.whiteboard.canvas;
+    const ctx = this.whiteboard.ctx;
+    if (!canvas || !ctx) return;
+
+    // 현재 상태의 이미지 데이터 저장
+    const currentState = this.whiteboard.history[this.whiteboard.historyStep];
+    if (!currentState) return;
+
+    const img = new Image();
+    img.onload = () => {
+      // 배경 색상
+      ctx.fillStyle = this.whiteboard.currentBgColor;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // 그리드 그리기
+      if (this.whiteboard.showGrid) {
+        this.drawGrid();
+      }
+
+      // 원본 이미지 복원
+      ctx.drawImage(img, 0, 0);
+    };
+    img.src = currentState;
+  }
+
+  // 그리드 그리기
+  drawGrid() {
+    const canvas = this.whiteboard.canvas;
+    const ctx = this.whiteboard.ctx;
+    if (!canvas || !ctx) return;
+
+    const gridSize = 20;
+    ctx.strokeStyle = '#e0e0e0';
+    ctx.lineWidth = 0.5;
+
+    // 세로선
+    for (let x = 0; x <= canvas.width; x += gridSize) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, canvas.height);
+      ctx.stroke();
+    }
+
+    // 가로선
+    for (let y = 0; y <= canvas.height; y += gridSize) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(canvas.width, y);
+      ctx.stroke();
+    }
+  }
+
+  // 이미지 업로드
+  uploadImageToWhiteboard(e) {
+    const file = e.target.files[0];
+    if (!file || !file.type.match('image.*')) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = this.whiteboard.canvas;
+        const ctx = this.whiteboard.ctx;
+        if (!canvas || !ctx) return;
+
+        // 이미지 크기 조정 (캔버스에 맞게)
+        const maxWidth = canvas.width * 0.5;
+        const maxHeight = canvas.height * 0.5;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxWidth || height > maxHeight) {
+          const ratio = Math.min(maxWidth / width, maxHeight / height);
+          width *= ratio;
+          height *= ratio;
+        }
+
+        // 중앙에 배치
+        const x = (canvas.width - width) / 2;
+        const y = (canvas.height - height) / 2;
+
+        ctx.drawImage(img, x, y, width, height);
+        this.saveWhiteboardState();
+      };
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+
+    // 입력 초기화
+    e.target.value = '';
   }
 }
 
