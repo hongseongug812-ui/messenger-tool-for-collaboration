@@ -20,8 +20,8 @@ let tray;
 
 // 환경변수 가져오기
 const config = {
-  serverUrl: process.env.SERVER_URL || 'http://localhost:3000',
-  socketPort: process.env.SOCKET_PORT || 3000,
+  serverUrl: process.env.SERVER_URL || 'http://localhost:8000',
+  socketPort: process.env.SOCKET_PORT || 8000,
   apiKey: process.env.API_KEY || '',
   apiSecret: process.env.API_SECRET || '',
   encryptionKey: process.env.ENCRYPTION_KEY || '',

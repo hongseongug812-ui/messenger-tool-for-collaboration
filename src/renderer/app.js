@@ -10,6 +10,8 @@ class WorkMessenger {
     this.servers = [];
     this.messages = {};
     this.pinnedMessages = {};
+    this.apiBase = '';
+    this.loadedMessages = new Set();
     this.user = {
       id: 'user_' + Math.random().toString(36).substr(2, 9),
       name: '사용자',
@@ -115,6 +117,7 @@ class WorkMessenger {
 
     // 설정 로드
     await this.loadConfig();
+    this.apiBase = this.config?.serverUrl || '';
 
     // UI 이벤트 바인딩
     this.bindEvents();
@@ -122,11 +125,14 @@ class WorkMessenger {
     // 테마 버튼 초기화
     this.updateThemeButton();
 
-    // 데모 데이터 로드
-    this.loadDemoData();
+    // 서버 데이터 로드 (백엔드 우선, 실패 시 데모 데이터)
+    const loaded = await this.loadServerData();
+    if (!loaded) {
+      this.loadDemoData();
+    }
 
     // 소켓 연결 (서버가 있을 경우)
-    // this.connectSocket();
+    this.connectSocket();
 
     console.log('Work Messenger 초기화 완료');
   }
@@ -136,9 +142,114 @@ class WorkMessenger {
       this.config = await window.electronAPI.getConfig();
     } else {
       this.config = {
-        serverUrl: 'http://localhost:3000',
+        serverUrl: 'http://localhost:8000',
         pushEnabled: true
       };
+    }
+  }
+
+  async apiRequest(path, options = {}) {
+    if (!this.apiBase) throw new Error('API base URL not configured');
+
+    const url = `${this.apiBase}${path}`;
+    const headers = options.headers || {};
+    if (options.body && !headers['Content-Type']) {
+      headers['Content-Type'] = 'application/json';
+    }
+
+    const response = await fetch(url, {
+      method: options.method || 'GET',
+      headers,
+      body: options.body,
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || response.statusText);
+    }
+
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      return response.json();
+    }
+    return null;
+  }
+
+  normalizeMessage(msg) {
+    const sender =
+      msg.sender && typeof msg.sender === 'object'
+        ? {
+            id: msg.sender.id || null,
+            name: msg.sender.name || '사용자',
+            avatar: msg.sender.avatar || (msg.sender.name ? msg.sender.name[0] : 'U')
+          }
+        : {
+            id: null,
+            name: typeof msg.sender === 'string' ? msg.sender : '사용자',
+            avatar: typeof msg.sender === 'string' ? msg.sender[0] : 'U'
+          };
+
+    const timestamp = msg.timestamp ? new Date(msg.timestamp) : new Date();
+    const timeStr = timestamp.toLocaleTimeString('ko-KR', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+
+    return {
+      ...msg,
+      sender,
+      time: msg.time || timeStr
+    };
+  }
+
+  async loadServerData() {
+    if (!this.apiBase) return false;
+
+    try {
+      this.messages = {};
+      this.loadedMessages = new Set();
+
+      const data = await this.apiRequest('/state');
+      const servers = data?.servers || data || [];
+
+      this.servers = servers.map(server => ({
+        ...server,
+        categories: (server.categories || []).map(cat => ({
+          ...cat,
+          channels: (cat.channels || []).map(ch => ({ ...ch, unread: ch.unread || 0 }))
+        }))
+      }));
+
+      if (this.servers.length === 0) {
+        return false;
+      }
+
+      this.currentServer = this.servers[0];
+      this.renderServerList();
+      this.renderChannelList();
+      const firstChannel = this.currentServer.categories?.[0]?.channels?.[0];
+      if (firstChannel) {
+        await this.selectChannel(firstChannel);
+      }
+      return true;
+    } catch (error) {
+      console.error('서버 데이터 로드 실패:', error);
+      return false;
+    }
+  }
+
+  async fetchMessages(channelId) {
+    if (!this.apiBase || this.loadedMessages.has(channelId)) return;
+
+    try {
+      const data = await this.apiRequest(`/channels/${channelId}/messages`);
+      if (Array.isArray(data)) {
+        this.messages[channelId] = data.map(msg => this.normalizeMessage(msg));
+        this.loadedMessages.add(channelId);
+      }
+    } catch (error) {
+      console.error('메시지 로드 실패:', error);
     }
   }
 
@@ -438,6 +549,9 @@ class WorkMessenger {
   }
 
   loadDemoData() {
+    this.loadedMessages = new Set();
+    this.messages = {};
+
     // 데모 서버 데이터
     this.servers = [
       {
@@ -665,26 +779,41 @@ class WorkMessenger {
     const name = await this.showInputDialog('새 서버 이름:');
     if (!name) return;
 
-    const newServer = {
-      id: 'server_' + Date.now(),
-      name: name,
-      avatar: name.charAt(0),
-      categories: [
-        {
-          id: 'cat_' + Date.now(),
-          name: '일반',
-          collapsed: false,
-          channels: [
-            {
-              id: 'channel_' + Date.now(),
-              name: '일반',
-              type: 'text',
-              unread: 0
-            }
-          ]
-        }
-      ]
-    };
+    let newServer = null;
+
+    if (this.apiBase) {
+      try {
+        newServer = await this.apiRequest('/servers', {
+          method: 'POST',
+          body: JSON.stringify({ name, avatar: name.charAt(0) })
+        });
+      } catch (error) {
+        console.error('서버 생성 실패, 로컬로 진행합니다:', error);
+      }
+    }
+
+    if (!newServer) {
+      newServer = {
+        id: 'server_' + Date.now(),
+        name: name,
+        avatar: name.charAt(0),
+        categories: [
+          {
+            id: 'cat_' + Date.now(),
+            name: '일반',
+            collapsed: false,
+            channels: [
+              {
+                id: 'channel_' + Date.now(),
+                name: '일반',
+                type: 'text',
+                unread: 0
+              }
+            ]
+          }
+        ]
+      };
+    }
 
     this.servers.push(newServer);
     this.renderServerList();
@@ -875,7 +1004,7 @@ class WorkMessenger {
     return div;
   }
 
-  selectChannel(channel) {
+  async selectChannel(channel) {
     this.currentChannel = channel;
 
     // 채널 목록 업데이트
@@ -900,8 +1029,14 @@ class WorkMessenger {
     document.getElementById('chat-title').textContent = channel.name;
     document.getElementById('chat-status').textContent = this.currentServer.name;
 
-    // 메시지 렌더링
+    // 메시지 렌더링 (서버에서 동기화)
+    await this.fetchMessages(channel.id);
     this.renderMessages(channel.id);
+
+    // 소켓 룸 참가
+    if (window.electronAPI?.emitSocketEvent) {
+      window.electronAPI.emitSocketEvent('join', { channelId: channel.id });
+    }
 
     // 멤버 패널 표시
     this.renderMembers();
@@ -953,12 +1088,24 @@ class WorkMessenger {
     const name = await this.showInputDialog('새 카테고리 이름:');
     if (!name) return;
 
-    const newCategory = {
+    let newCategory = {
       id: 'cat_' + Date.now(),
       name: name,
       collapsed: false,
       channels: []
     };
+
+    if (this.apiBase) {
+      try {
+        const created = await this.apiRequest(`/servers/${this.currentServer.id}/categories`, {
+          method: 'POST',
+          body: JSON.stringify({ name, collapsed: false })
+        });
+        newCategory = created || newCategory;
+      } catch (error) {
+        console.error('카테고리 생성 실패, 로컬로 진행합니다:', error);
+      }
+    }
 
     this.currentServer.categories.push(newCategory);
     this.renderChannelList();
@@ -967,6 +1114,17 @@ class WorkMessenger {
   async editCategory(category) {
     const name = await this.showInputDialog('카테고리 이름 변경:', category.name);
     if (!name || name === category.name) return;
+
+    if (this.apiBase) {
+      try {
+        await this.apiRequest(`/servers/${this.currentServer.id}/categories/${category.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ name })
+        });
+      } catch (error) {
+        console.error('카테고리 수정 실패, 로컬로 진행합니다:', error);
+      }
+    }
 
     category.name = name;
     this.renderChannelList();
@@ -979,8 +1137,20 @@ class WorkMessenger {
       }
     }
 
+    if (this.apiBase) {
+      this.apiRequest(`/servers/${this.currentServer.id}/categories/${category.id}`, {
+        method: 'DELETE'
+      }).catch((error) => console.error('카테고리 삭제 실패 (계속 진행):', error));
+    }
+
     const index = this.currentServer.categories.findIndex(c => c.id === category.id);
     if (index !== -1) {
+      // 로컬 메시지 클리어
+      category.channels.forEach(ch => {
+        delete this.messages[ch.id];
+        this.loadedMessages.delete(ch.id);
+      });
+
       this.currentServer.categories.splice(index, 1);
       this.renderChannelList();
     }
@@ -998,22 +1168,50 @@ class WorkMessenger {
     }
 
     const category = this.currentServer.categories[0];
-    const newChannel = {
+    let newChannel = {
       id: 'channel_' + Date.now(),
       name: name,
       type: 'text',
       unread: 0
     };
 
+    if (this.apiBase) {
+      try {
+        const created = await this.apiRequest(`/servers/${this.currentServer.id}/categories/${category.id}/channels`, {
+          method: 'POST',
+          body: JSON.stringify({ name, type: 'text' })
+        });
+        newChannel = created || newChannel;
+      } catch (error) {
+        console.error('채널 생성 실패, 로컬로 진행합니다:', error);
+      }
+    }
+
     category.channels.push(newChannel);
     this.messages[newChannel.id] = [];
     this.renderChannelList();
-    this.selectChannel(newChannel);
+    await this.selectChannel(newChannel);
   }
 
   async editChannel(channel) {
     const name = await this.showInputDialog('채널 이름 변경:', channel.name);
     if (!name || name === channel.name) return;
+
+    const foundCategory = this.currentServer?.categories?.find(cat =>
+      cat.channels.some(c => c.id === channel.id)
+    );
+    const categoryId = foundCategory?.id || this.currentServer?.categories?.[0]?.id;
+
+    if (this.apiBase) {
+      try {
+        await this.apiRequest(`/servers/${this.currentServer.id}/categories/${categoryId}/channels/${channel.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ name })
+        });
+      } catch (error) {
+        console.error('채널 수정 실패, 로컬로 진행합니다:', error);
+      }
+    }
 
     channel.name = name;
     this.renderChannelList();
@@ -1028,9 +1226,17 @@ class WorkMessenger {
       return;
     }
 
+    if (this.apiBase) {
+      this.apiRequest(`/servers/${this.currentServer.id}/categories/${category.id}/channels/${channel.id}`, {
+        method: 'DELETE'
+      }).catch((error) => console.error('채널 삭제 실패 (계속 진행):', error));
+    }
+
     const index = category.channels.findIndex(c => c.id === channel.id);
     if (index !== -1) {
       category.channels.splice(index, 1);
+      delete this.messages[channel.id];
+      this.loadedMessages.delete(channel.id);
 
       if (this.currentChannel?.id === channel.id) {
         this.currentChannel = null;
@@ -1378,7 +1584,7 @@ class WorkMessenger {
     document.getElementById('send-btn').disabled = !textarea.value.trim();
   }
 
-  sendMessage() {
+  async sendMessage() {
     const input = document.getElementById('message-input');
     const content = input.value.trim();
 
@@ -1402,15 +1608,44 @@ class WorkMessenger {
         name: f.name,
         size: f.size,
         type: f.type,
-        url: f.url
-      }))
+      url: f.url
+    }))
     };
+
+    let finalMessage = message;
+
+    // 서버 저장 (실패 시 로컬 메시지 유지)
+    if (this.apiBase) {
+      try {
+        const payload = {
+          sender: {
+            id: this.user.id,
+            name: this.user.name,
+            avatar: this.user.avatar
+          },
+          content: content,
+          files: message.files
+        };
+
+        const saved = await this.apiRequest(`/channels/${this.currentChannel.id}/messages`, {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        });
+
+        if (saved) {
+          finalMessage = this.normalizeMessage(saved);
+          finalMessage.sent = true;
+        }
+      } catch (error) {
+        console.error('메시지 서버 전송 실패, 로컬에만 표시합니다:', error);
+      }
+    }
 
     // 메시지 추가
     if (!this.messages[this.currentChannel.id]) {
       this.messages[this.currentChannel.id] = [];
     }
-    this.messages[this.currentChannel.id].push(message);
+    this.messages[this.currentChannel.id].push(finalMessage);
 
     // UI 업데이트
     this.renderMessages(this.currentChannel.id);
@@ -1437,30 +1672,42 @@ class WorkMessenger {
   }
 
   connectSocket() {
-    // Socket.IO 연결 (실제 서버 연결 시 활성화)
-    /*
-    this.socket = io(this.config.serverUrl, {
-      auth: {
-        token: this.user.id
-      }
-    });
+    if (!window.electronAPI || !this.apiBase) return;
 
-    this.socket.on('connect', () => {
-      console.log('서버 연결됨');
-      document.querySelector('.status-dot').classList.add('connected');
-      document.querySelector('.status-dot').classList.remove('disconnected');
-    });
+    try {
+      window.electronAPI.connectSocket(this.apiBase);
 
-    this.socket.on('disconnect', () => {
-      console.log('서버 연결 끊김');
-      document.querySelector('.status-dot').classList.remove('connected');
-      document.querySelector('.status-dot').classList.add('disconnected');
-    });
+      window.electronAPI.onSocketEvent('connect', () => {
+        console.log('서버 연결됨');
+        const statusDot = document.querySelector('.status-dot');
+        const statusText = document.getElementById('connection-status');
+        statusDot?.classList.add('connected');
+        statusDot?.classList.remove('disconnected');
+        if (statusText) {
+          statusText.innerHTML = '<span class="status-dot connected"></span> 연결됨';
+        }
+        if (this.currentChannel) {
+          window.electronAPI.emitSocketEvent('join', { channelId: this.currentChannel.id });
+        }
+      });
 
-    this.socket.on('message', (data) => {
-      this.handleIncomingMessage(data);
-    });
-    */
+      window.electronAPI.onSocketEvent('disconnect', () => {
+        console.log('서버 연결 끊김');
+        const statusDot = document.querySelector('.status-dot');
+        const statusText = document.getElementById('connection-status');
+        statusDot?.classList.remove('connected');
+        statusDot?.classList.add('disconnected');
+        if (statusText) {
+          statusText.innerHTML = '<span class="status-dot disconnected"></span> 연결 안됨';
+        }
+      });
+
+      window.electronAPI.onSocketEvent('message', (data) => {
+        this.handleIncomingMessage(data);
+      });
+    } catch (error) {
+      console.error('소켓 연결 실패:', error);
+    }
   }
 
   handleIncomingMessage(data) {
@@ -1469,7 +1716,11 @@ class WorkMessenger {
     if (!this.messages[channelId]) {
       this.messages[channelId] = [];
     }
-    this.messages[channelId].push(message);
+    const normalized = this.normalizeMessage(message);
+    const exists = this.messages[channelId].some(m => m.id === normalized.id);
+    if (!exists) {
+      this.messages[channelId].push(normalized);
+    }
 
     // 채널 업데이트
     let channel = null;
@@ -1492,7 +1743,7 @@ class WorkMessenger {
 
     // 알림 표시
     if (this.currentChannel?.id !== channelId) {
-      this.showNotification(message.sender.name, message.content);
+      this.showNotification(normalized.sender.name, normalized.content);
     }
   }
 
