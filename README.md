@@ -18,11 +18,26 @@
 
 ### 필수 조건
 
-- Node.js 18 이상
+- Node.js 18+
 - npm 또는 yarn
+- Python 3.10+
+- MongoDB 5+ (로컬 또는 Atlas)
 
-### 설치
+### 설치 및 실행
 
+#### 1) 백엔드 (FastAPI + MongoDB)
+```bash
+# 가상환경 생성 (선택)
+python -m venv .venv && source .venv/bin/activate
+
+# 백엔드 의존성 설치
+pip install -r backend/requirements.txt
+
+# .env 설정 후 실행 (기본 포트 8000)
+uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+#### 2) 프런트(데스크톱 앱)
 ```bash
 # 저장소 클론
 git clone <repository-url>
@@ -38,7 +53,7 @@ npm run dev
 npm start
 ```
 
-### 빌드
+### 빌드 (데스크톱 앱 패키징)
 
 ```bash
 # Windows
@@ -63,10 +78,14 @@ cp .env.example .env
 
 | 변수명 | 설명 | 기본값 |
 |--------|------|--------|
-| `SERVER_URL` | 메신저 서버 URL | `http://localhost:3000` |
-| `SOCKET_PORT` | 소켓 포트 | `3000` |
-| `API_KEY` | API 인증 키 | - |
-| `API_SECRET` | API 시크릿 | - |
+| `SERVER_URL` | 백엔드 기본 URL | `http://localhost:8000` |
+| `SOCKET_PORT` | Socket.IO 포트 | `8000` |
+| `BACKEND_PORT` | 백엔드 리슨 포트 | `8000` |
+| `BACKEND_CORS_ORIGINS` | CORS 허용 도메인(콤마 구분) | `http://localhost:3000,http://localhost:5173,http://localhost:8080` |
+| `MONGO_URI` | MongoDB 연결 URI | `mongodb://localhost:27017` |
+| `MONGO_DB` | MongoDB DB 이름 | `work_messenger` |
+| `API_KEY` | API 인증 키 (선택) | - |
+| `API_SECRET` | API 시크릿 (선택) | - |
 | `ENCRYPTION_KEY` | 메시지 암호화 키 (32자) | - |
 | `PUSH_ENABLED` | 푸시 알림 활성화 | `true` |
 | `PUSH_SOUND` | 알림 소리 | `true` |
@@ -83,6 +102,9 @@ work-messenger/
 │       ├── index.html    # 메인 UI
 │       ├── styles.css    # 스타일
 │       └── app.js        # 렌더러 로직
+├── backend/
+│   ├── app/              # FastAPI + Socket.IO 백엔드
+│   └── requirements.txt
 ├── assets/               # 아이콘 등 리소스
 ├── .env.example          # 환경 변수 예시
 └── package.json
@@ -116,25 +138,28 @@ work-messenger/
 
 ## 🔌 서버 연결
 
-현재는 데모 데이터로 동작합니다. 실제 서버와 연결하려면:
+기본적으로 FastAPI 백엔드와 MongoDB를 사용해 서버/카테고리/채널/메시지를 영구 저장하고 Socket.IO로 동기화합니다.
 
-1. `app.js`에서 `connectSocket()` 메서드의 주석을 해제
-2. `.env`에 서버 정보 입력
-3. Socket.IO 기반 서버 구현
+1. `.env`에 백엔드/Mongo 설정을 입력하고 백엔드를 실행합니다.
+2. 프런트 `.env`의 `SERVER_URL`/`SOCKET_PORT`를 백엔드 포트(기본 8000)로 맞춥니다.
+3. 앱 실행 후 새로운 서버/채널/메시지가 MongoDB(`work_messenger` DB, `servers`/`messages` 컬렉션)에 저장되고 Socket.IO로 실시간 반영됩니다.
 
-### 메시지 프로토콜 (예시)
+### 메시지 프로토콜 (Socket.IO 예시)
 
 ```javascript
 // 메시지 전송
 socket.emit('message', {
-  chatId: 'chat_id',
-  content: '메시지 내용',
-  timestamp: Date.now()
+  channelId: 'channel_id',
+  message: {
+    sender: { id: 'user1', name: '사용자', avatar: 'U' },
+    content: '메시지 내용',
+    files: []
+  }
 });
 
 // 메시지 수신
 socket.on('message', (data) => {
-  // { chatId, sender, content, timestamp }
+  // { channelId, message }
 });
 ```
 
