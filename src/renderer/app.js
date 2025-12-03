@@ -603,7 +603,24 @@ class WorkMessenger {
       this.loadedMessages = new Set();
 
       const data = await this.apiRequest('/state');
-      const servers = data?.servers || data || [];
+      let servers = data?.servers || data || [];
+
+      // 백엔드에 아무 서버도 없을 때 기본 서버/채널 자동 생성
+      if (servers.length === 0) {
+        try {
+          const defaultName = '워크스페이스';
+          const created = await this.apiRequest('/servers', {
+            method: 'POST',
+            body: JSON.stringify({ name: defaultName, avatar: defaultName[0] })
+          });
+          if (created) {
+            servers.push(created);
+          }
+        } catch (error) {
+          console.error('기본 서버 자동 생성 실패:', error);
+          return false;
+        }
+      }
 
       this.servers = servers.map(server => ({
         ...server,
@@ -2171,7 +2188,7 @@ class WorkMessenger {
 
     let finalMessage = message;
 
-    // 서버 저장 (실패 시 로컬 메시지 유지)
+    // 서버 저장 (실패 시 소켓 전송으로 동기화 시도)
     if (this.apiBase) {
       try {
         const payload = {
@@ -2194,7 +2211,24 @@ class WorkMessenger {
           finalMessage.sent = true;
         }
       } catch (error) {
-        console.error('메시지 서버 전송 실패, 로컬에만 표시합니다:', error);
+        console.error('메시지 서버 전송 실패, 소켓으로 전송 시도:', error);
+        if (window.electronAPI?.isSocketConnected?.()) {
+          window.electronAPI.emitSocketEvent('message', {
+            channelId: this.currentChannel.id,
+            message: {
+              sender: {
+                id: this.user.id,
+                name: this.user.name,
+                avatar: this.user.avatar
+              },
+              content: content,
+              files: message.files
+            }
+          });
+          // 서버가 브로드캐스트할 것을 기다리므로 로컬 추가는 지연
+          this.resetInput();
+          return;
+        }
       }
     }
 
@@ -2207,15 +2241,19 @@ class WorkMessenger {
     // UI 업데이트 (새 메시지만 추가 - 성능 최적화)
     this.appendMessage(finalMessage, this.currentChannel.id);
 
-    // 입력창 및 첨부파일 초기화
+    this.resetInput();
+
+    // 소켓으로 전송 (서버 연결 시)
+    // this.socket?.emit('message', { channelId: this.currentChannel.id, message });
+  }
+
+  resetInput() {
+    const input = document.getElementById('message-input');
     input.value = '';
     input.style.height = 'auto';
     this.attachedFiles = [];
     this.renderAttachedFiles();
     document.getElementById('send-btn').disabled = true;
-
-    // 소켓으로 전송 (서버 연결 시)
-    // this.socket?.emit('message', { channelId: this.currentChannel.id, message });
   }
 
   showNotification(title, body) {
