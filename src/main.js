@@ -83,12 +83,10 @@ function createWindow() {
     mainWindow.webContents.openDevTools();
   }
 
-  // 창 닫기 시 트레이로 최소화
-  mainWindow.on('close', (event) => {
-    if (!app.isQuitting) {
-      event.preventDefault();
-      mainWindow.hide();
-    }
+  // 창 닫기 시 앱 종료
+  mainWindow.on('close', () => {
+    app.isQuitting = true;
+    app.quit();
   });
 }
 

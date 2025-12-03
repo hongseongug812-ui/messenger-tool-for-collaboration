@@ -52,7 +52,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     if (socket) {
       socket.disconnect();
     }
-    socket = ioClient(url, { transports: ['websocket'] });
+    socket = ioClient(url, {
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionAttempts: 20,
+      reconnectionDelay: 500,
+      autoConnect: true,
+      withCredentials: false
+    });
     return true;
   },
   onSocketEvent: (event, callback) => {

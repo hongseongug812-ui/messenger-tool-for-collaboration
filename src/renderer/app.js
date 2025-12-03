@@ -13,6 +13,7 @@ class WorkMessenger {
     this.reactions = {}; // 메시지 리액션 저장: { channelId: { messageId: { emoji: [userId, ...] } } }
     this.threads = {}; // 스레드 저장: { channelId: { messageId: [replies...] } }
     this.currentThread = null; // 현재 열린 스레드: { channelId, messageId, message }
+    this.pendingJoinChannels = new Set();
     this.apiBase = '';
     this.loadedMessages = new Set();
     this.user = {
@@ -184,8 +185,12 @@ class WorkMessenger {
     // 테마 로드 및 적용
     this.loadTheme();
 
+    // 설정 로드 (serverUrl 설정 후 인증 체크)
+    await this.loadConfig();
+    this.apiBase = this.config?.serverUrl || '';
+
     // 인증 체크
-    const isAuthenticated = this.checkAuth();
+    const isAuthenticated = await this.checkAuth();
 
     // 로딩 화면 숨기기 (부드러운 페이드아웃)
     requestAnimationFrame(() => {
@@ -244,6 +249,7 @@ class WorkMessenger {
         pushEnabled: true
       };
     }
+    this.apiBase = this.config?.serverUrl || '';
   }
 
   async apiRequest(path, options = {}) {
@@ -251,6 +257,9 @@ class WorkMessenger {
 
     const url = `${this.apiBase}${path}`;
     const headers = options.headers || {};
+    if (this.authToken) {
+      headers['Authorization'] = `Bearer ${this.authToken}`;
+    }
     if (options.body && !headers['Content-Type']) {
       headers['Content-Type'] = 'application/json';
     }
@@ -332,6 +341,7 @@ class WorkMessenger {
   }
 
   updateUserInfo(user) {
+    this.user.id = user.id || this.user.id;
     this.user.name = user.name;
     this.user.avatar = user.avatar || user.name.charAt(0);
     this.profile.name = user.name;
@@ -455,6 +465,7 @@ class WorkMessenger {
       this.authToken = data.access_token;
       this.auth.isAuthenticated = true;
       this.auth.currentUser = data.user;
+      this.updateUserInfo(data.user);
 
       // 토큰 저장
       if (rememberMe) {
@@ -462,9 +473,6 @@ class WorkMessenger {
       } else {
         sessionStorage.setItem('work_messenger_token', data.access_token);
       }
-
-      // 사용자 정보 업데이트
-      this.updateUserInfo(data.user);
 
       // 로그인 화면 숨기기
       this.hideAuthScreen();
@@ -551,6 +559,14 @@ class WorkMessenger {
   }
 
   logout() {
+    // 백엔드에 알림 (실패해도 무시)
+    if (this.apiBase && this.authToken) {
+      this.apiRequest('/auth/logout', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${this.authToken}` }
+      }).catch(() => {});
+    }
+
     // 토큰 제거
     localStorage.removeItem('work_messenger_token');
     sessionStorage.removeItem('work_messenger_token');
@@ -587,10 +603,14 @@ class WorkMessenger {
       hour12: true
     });
 
+    const currentUserId = this.auth?.currentUser?.id || this.user?.id || null;
+    const isMine = sender.id && currentUserId ? sender.id === currentUserId : false;
+
     return {
       ...msg,
       sender,
-      time: msg.time || timeStr
+      time: msg.time || timeStr,
+      sent: msg.sent !== undefined ? msg.sent : isMine
     };
   }
 
@@ -1568,6 +1588,9 @@ class WorkMessenger {
         channelId: channel.id,
         userId: this.auth?.currentUser?.id || this.user?.id
       });
+      this.pendingJoinChannels.delete(channel.id);
+    } else {
+      this.pendingJoinChannels.add(channel.id);
     }
   }
 
@@ -2316,6 +2339,19 @@ class WorkMessenger {
             userId: this.auth?.currentUser?.id || this.user?.id
           });
         }
+
+        // 연결 시 아직 조인하지 못한 채널 재조인
+        this.pendingJoinChannels.forEach(channelId => {
+          window.electronAPI.emitSocketEvent('join', {
+            channelId,
+            userId: this.auth?.currentUser?.id || this.user?.id
+          });
+          this.pendingJoinChannels.delete(channelId);
+        });
+      });
+
+      window.electronAPI.onSocketEvent('connect_error', (err) => {
+        console.error('소켓 연결 오류:', err);
       });
 
       window.electronAPI.onSocketEvent('disconnect', () => {

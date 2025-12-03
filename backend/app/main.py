@@ -7,9 +7,9 @@ import socketio
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from jose import JWTError, jwt
 from motor.motor_asyncio import AsyncIOMotorClient
 from passlib.context import CryptContext
-from jose import JWTError, jwt
 from pydantic import BaseModel, Field, EmailStr
 
 
@@ -27,7 +27,7 @@ def _now():
 # 환경 변수
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 MONGO_DB = os.getenv("MONGO_DB", "work_messenger")
-JWT_SECRET = os.getenv("JWT_SECRET", "your-secret-key-change-in-production")
+JWT_SECRET = os.getenv("JWT_SECRET", "change-me-in-production")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = 24 * 7  # 7일
 
@@ -43,10 +43,8 @@ servers_col = mongo_db["servers"]
 messages_col = mongo_db["messages"]
 users_col = mongo_db["users"]
 
-# 비밀번호 해싱
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-# HTTP Bearer 인증
+# 비밀번호 해싱 및 인증 스킴 (bcrypt 72바이트 제한 회피를 위해 bcrypt_sha256 사용)
+pwd_context = CryptContext(schemes=["bcrypt_sha256"], deprecated="auto")
 security = HTTPBearer()
 
 # Socket.IO 서버 (ASGI)
@@ -67,16 +65,80 @@ fastapi_app.add_middleware(
 )
 
 
+async def _log_mongo_connection():
+  try:
+    await mongo_db.command("ping")
+    print(f"[backend] MongoDB 연결 성공: {MONGO_URI} / DB={MONGO_DB}")
+  except Exception as exc:
+    print(f"[backend] MongoDB 연결 실패: {exc}")
+
+
+# 초기 데이터 부트스트랩 (MongoDB에 서버/메시지가 없을 때)
+@fastapi_app.on_event("startup")
+async def bootstrap_default_data():
+  await _log_mongo_connection()
+  server_count = await servers_col.estimated_document_count()
+  if server_count > 0:
+    return
+
+  default_server_id = "server_default"
+  default_category_id = "cat_default"
+  default_channel_id = "channel_default"
+
+  default_server = {
+      "_id": default_server_id,
+      "name": "회사 워크스페이스",
+      "avatar": "회",
+      "categories": [
+          {
+              "id": default_category_id,
+              "name": "텍스트 채널",
+              "collapsed": False,
+              "channels": [
+                  {
+                      "id": default_channel_id,
+                      "name": "일반",
+                      "type": "text",
+                      "unread": 0,
+                  }
+              ],
+          }
+      ],
+      "created_at": _now(),
+  }
+
+  default_messages = [
+      {
+          "_id": "msg_default_1",
+          "channel_id": default_channel_id,
+          "sender": {"id": "user_system", "name": "시스템", "avatar": "S"},
+          "content": "Work Messenger 백엔드가 MongoDB와 연결되었습니다.",
+          "timestamp": _now(),
+          "files": [],
+      },
+      {
+          "_id": "msg_default_2",
+          "channel_id": default_channel_id,
+          "sender": {"id": "user_demo", "name": "데모", "avatar": "D"},
+          "content": "새 메시지를 입력해보세요!",
+          "timestamp": _now(),
+          "files": [],
+      },
+  ]
+
+  await servers_col.insert_one(default_server)
+  await messages_col.insert_many(default_messages)
+
+
 # -----------------------------
 # 데이터 모델
 # -----------------------------
-
 # 사용자 인증 모델
 class UserSignup(BaseModel):
   username: str = Field(..., min_length=3, max_length=30)
   name: str = Field(..., min_length=1, max_length=50)
   email: EmailStr
-  password: str = Field(..., min_length=6, max_length=100)
+  password: str = Field(..., min_length=6, max_length=72)
 
 
 class UserLogin(BaseModel):
@@ -110,6 +172,7 @@ class AuthResponse(BaseModel):
   access_token: str
   token_type: str
   user: User
+
 
 
 class Sender(BaseModel):
@@ -202,7 +265,6 @@ class StateResponse(BaseModel):
 # -----------------------------
 # 유틸 함수
 # -----------------------------
-
 # 비밀번호 해싱 및 검증
 def hash_password(password: str) -> str:
   return pwd_context.hash(password)
@@ -210,6 +272,15 @@ def hash_password(password: str) -> str:
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
   return pwd_context.verify(plain_password, hashed_password)
+
+
+def ensure_password_length(password: str):
+  # bcrypt 계열은 72바이트 제한이 있어 사전에 차단
+  if len(password.encode("utf-8")) > 72:
+    raise HTTPException(
+      status_code=status.HTTP_400_BAD_REQUEST,
+      detail="Password too long (max 72 bytes)"
+    )
 
 
 # JWT 토큰 생성 및 검증
@@ -259,7 +330,6 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     avatar=user_doc["avatar"],
     created_at=user_doc["created_at"],
   )
-
 
 def _server_doc_to_model(doc: Dict) -> Server:
   return Server(
@@ -312,97 +382,72 @@ async def health():
 # -----------------------------
 @fastapi_app.post("/auth/signup", response_model=AuthResponse, status_code=201)
 async def signup(user_data: UserSignup):
-  # 사용자명 중복 확인
-  existing_user = await users_col.find_one({"username": user_data.username})
-  if existing_user:
-    raise HTTPException(
-      status_code=status.HTTP_400_BAD_REQUEST,
-      detail="Username already exists"
-    )
+  # 사용자명/이메일 중복 검사
+  if await users_col.find_one({"username": user_data.username}):
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username already exists")
+  if await users_col.find_one({"email": user_data.email}):
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already exists")
 
-  # 이메일 중복 확인
-  existing_email = await users_col.find_one({"email": user_data.email})
-  if existing_email:
-    raise HTTPException(
-      status_code=status.HTTP_400_BAD_REQUEST,
-      detail="Email already exists"
-    )
+  ensure_password_length(user_data.password)
 
-  # 사용자 생성
   user_id = f"user_{uuid.uuid4().hex[:12]}"
   hashed_password = hash_password(user_data.password)
   avatar = user_data.name[:1].upper()
 
   user_doc = {
-    "_id": user_id,
-    "username": user_data.username,
-    "name": user_data.name,
-    "email": user_data.email,
-    "avatar": avatar,
-    "hashed_password": hashed_password,
-    "created_at": _now(),
+      "_id": user_id,
+      "username": user_data.username,
+      "name": user_data.name,
+      "email": user_data.email,
+      "avatar": avatar,
+      "hashed_password": hashed_password,
+      "created_at": _now(),
   }
 
   await users_col.insert_one(user_doc)
 
-  # JWT 토큰 생성
   access_token = create_access_token(data={"sub": user_data.username})
-
   user = User(
-    id=user_id,
-    username=user_data.username,
-    name=user_data.name,
-    email=user_data.email,
-    avatar=avatar,
-    created_at=user_doc["created_at"],
+      id=user_id,
+      username=user_data.username,
+      name=user_data.name,
+      email=user_data.email,
+      avatar=avatar,
+      created_at=user_doc["created_at"],
   )
 
-  return AuthResponse(
-    access_token=access_token,
-    token_type="bearer",
-    user=user
-  )
+  return AuthResponse(access_token=access_token, token_type="bearer", user=user)
 
 
 @fastapi_app.post("/auth/login", response_model=AuthResponse)
 async def login(credentials: UserLogin):
-  # 사용자 찾기
   user_doc = await users_col.find_one({"username": credentials.username})
-  if not user_doc:
-    raise HTTPException(
-      status_code=status.HTTP_401_UNAUTHORIZED,
-      detail="Incorrect username or password"
-    )
+  ensure_password_length(credentials.password)
 
-  # 비밀번호 확인
-  if not verify_password(credentials.password, user_doc["hashed_password"]):
-    raise HTTPException(
-      status_code=status.HTTP_401_UNAUTHORIZED,
-      detail="Incorrect username or password"
-    )
+  if not user_doc or not verify_password(credentials.password, user_doc.get("hashed_password", "")):
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect username or password")
 
-  # JWT 토큰 생성
   access_token = create_access_token(data={"sub": credentials.username})
-
   user = User(
-    id=user_doc["_id"],
-    username=user_doc["username"],
-    name=user_doc["name"],
-    email=user_doc["email"],
-    avatar=user_doc["avatar"],
-    created_at=user_doc["created_at"],
+      id=user_doc["_id"],
+      username=user_doc["username"],
+      name=user_doc["name"],
+      email=user_doc["email"],
+      avatar=user_doc["avatar"],
+      created_at=user_doc["created_at"],
   )
-
-  return AuthResponse(
-    access_token=access_token,
-    token_type="bearer",
-    user=user
-  )
+  return AuthResponse(access_token=access_token, token_type="bearer", user=user)
 
 
 @fastapi_app.get("/auth/me", response_model=User)
 async def get_me(current_user: User = Depends(get_current_user)):
   return current_user
+
+
+@fastapi_app.post("/auth/logout")
+async def logout():
+  # JWT는 상태가 없으므로 클라이언트에서 토큰을 삭제하도록 안내만 반환
+  return {"status": "ok", "message": "logged out"}
 
 
 # -----------------------------
@@ -650,6 +695,8 @@ async def create_message(channel_id: str, payload: MessageCreate):
       }
   )
 
+  print(f"[backend] message saved (REST) channel={channel_id}, id={message.id}, sender={sender.name}")
+
   await sio.emit(
       "message",
       {"channelId": channel_id, "message": _message_to_response(message)},
@@ -749,6 +796,31 @@ async def remove_channel_member(channel_id: str, user_id: str):
 
 # 온라인 사용자 추적 (세션 ID -> 사용자 ID 매핑)
 online_users = {}
+user_cache: Dict[str, Dict] = {}
+
+
+async def _get_member_summary(user_id: str) -> Dict:
+  # 캐시 우선
+  if user_id in user_cache:
+    return user_cache[user_id]
+
+  user_doc = await users_col.find_one({"_id": user_id})
+  if user_doc:
+    summary = {
+        "id": user_doc["_id"],
+        "name": user_doc["name"],
+        "avatar": user_doc.get("avatar") or user_doc["name"][:1],
+        "status": "online",
+    }
+  else:
+    summary = {
+        "id": user_id,
+        "name": user_id,
+        "avatar": user_id[:1] if user_id else "U",
+        "status": "online",
+    }
+  user_cache[user_id] = summary
+  return summary
 
 
 @sio.event
@@ -768,8 +840,8 @@ async def disconnect(sid):
     channels = session.get("channels", [])
     for channel_id in channels:
       await sio.emit(
-          "user_status_changed",
-          {"userId": user_id, "status": "offline", "channelId": channel_id},
+          "member_left",
+          {"userId": user_id, "channelId": channel_id},
           room=channel_id,
       )
 
@@ -795,10 +867,18 @@ async def join(sid, data):
     online_users[sid] = user_id
     await sio.save_session(sid, {"channels": list(channels), "user_id": user_id})
 
+    # 채널 멤버 목록에 추가 (중복 없이)
+    member = await _get_member_summary(user_id)
+    await servers_col.update_one(
+        {"categories.channels.id": channel_id},
+        {"$addToSet": {"categories.$[].channels.$[ch].members": member}},
+        array_filters=[{"ch.id": channel_id}],
+    )
+
     # 채널에 온라인 상태 브로드캐스트
     await sio.emit(
-        "user_status_changed",
-        {"userId": user_id, "status": "online", "channelId": channel_id},
+        "member_joined",
+        {"channelId": channel_id, "member": member},
         room=channel_id,
     )
   else:
@@ -818,6 +898,9 @@ async def leave(sid, data):
   channels = set(session.get("channels", []))
   channels.discard(channel_id)
   await sio.save_session(sid, {"channels": list(channels)})
+  user_id = online_users.get(sid)
+  if user_id:
+    await sio.emit("member_left", {"channelId": channel_id, "userId": user_id}, room=channel_id)
   await sio.emit("left", {"channelId": channel_id}, to=sid)
   return True
 
@@ -865,6 +948,8 @@ async def message(sid, data):
           "files": [f.model_dump() for f in message_obj.files],
       }
   )
+
+  print(f"[backend] message saved (socket) channel={channel_id}, id={message_obj.id}, sender={message_obj.sender.name}")
 
   await sio.emit(
       "message",
