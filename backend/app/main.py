@@ -126,11 +126,19 @@ class FileAttachment(BaseModel):
   url: Optional[str] = None
 
 
+class ChannelMember(BaseModel):
+  id: str
+  name: str
+  avatar: str
+  status: str = "offline"  # online, offline, away
+
+
 class Channel(BaseModel):
   id: str
   name: str
   type: str = "text"
   unread: int = 0
+  members: List[ChannelMember] = Field(default_factory=list)
 
 
 class Category(BaseModel):
@@ -651,21 +659,128 @@ async def create_message(channel_id: str, payload: MessageCreate):
 
 
 # -----------------------------
+# 채널 멤버 API
+# -----------------------------
+@fastapi_app.get(
+    "/channels/{channel_id}/members",
+    response_model=List[ChannelMember],
+)
+async def get_channel_members(channel_id: str):
+  server_doc = await servers_col.find_one({"categories.channels.id": channel_id})
+  if not server_doc:
+    raise HTTPException(status_code=404, detail="Channel not found")
+
+  # Find the channel and get its members
+  for category in server_doc.get("categories", []):
+    for channel in category.get("channels", []):
+      if channel["id"] == channel_id:
+        members = channel.get("members", [])
+        return [ChannelMember(**m) for m in members]
+
+  raise HTTPException(status_code=404, detail="Channel not found")
+
+
+@fastapi_app.post(
+    "/channels/{channel_id}/members",
+    response_model=ChannelMember,
+    status_code=201,
+)
+async def add_channel_member(channel_id: str, member: ChannelMember):
+  # Find the server containing this channel
+  server_doc = await servers_col.find_one({"categories.channels.id": channel_id})
+  if not server_doc:
+    raise HTTPException(status_code=404, detail="Channel not found")
+
+  # Check if member already exists
+  for category in server_doc.get("categories", []):
+    for channel in category.get("channels", []):
+      if channel["id"] == channel_id:
+        existing_members = channel.get("members", [])
+        if any(m["id"] == member.id for m in existing_members):
+          raise HTTPException(status_code=400, detail="Member already exists in channel")
+
+  # Add member to channel
+  result = await servers_col.update_one(
+      {"categories.channels.id": channel_id},
+      {"$push": {"categories.$[].channels.$[ch].members": member.model_dump()}},
+      array_filters=[{"ch.id": channel_id}],
+  )
+
+  if result.modified_count == 0:
+    raise HTTPException(status_code=404, detail="Channel not found")
+
+  # Emit Socket.IO event for real-time update
+  await sio.emit(
+      "member_joined",
+      {"channelId": channel_id, "member": member.model_dump()},
+      room=channel_id,
+  )
+
+  return member
+
+
+@fastapi_app.delete(
+    "/channels/{channel_id}/members/{user_id}",
+    status_code=204,
+)
+async def remove_channel_member(channel_id: str, user_id: str):
+  result = await servers_col.update_one(
+      {"categories.channels.id": channel_id},
+      {"$pull": {"categories.$[].channels.$[ch].members": {"id": user_id}}},
+      array_filters=[{"ch.id": channel_id}],
+  )
+
+  if result.modified_count == 0:
+    raise HTTPException(status_code=404, detail="Channel or member not found")
+
+  # Emit Socket.IO event for real-time update
+  await sio.emit(
+      "member_left",
+      {"channelId": channel_id, "userId": user_id},
+      room=channel_id,
+  )
+
+  return None
+
+
+# -----------------------------
 # Socket.IO 이벤트
 # -----------------------------
+
+# 온라인 사용자 추적 (세션 ID -> 사용자 ID 매핑)
+online_users = {}
+
+
 @sio.event
 async def connect(sid, environ):
-  await sio.save_session(sid, {"channels": []})
+  await sio.save_session(sid, {"channels": [], "user_id": None})
 
 
 @sio.event
 async def disconnect(sid):
-  await sio.save_session(sid, {"channels": []})
+  # 사용자의 온라인 상태 업데이트
+  if sid in online_users:
+    user_id = online_users[sid]
+    del online_users[sid]
+
+    # 사용자가 속한 모든 채널에 오프라인 상태 브로드캐스트
+    session = await sio.get_session(sid)
+    channels = session.get("channels", [])
+    for channel_id in channels:
+      await sio.emit(
+          "user_status_changed",
+          {"userId": user_id, "status": "offline", "channelId": channel_id},
+          room=channel_id,
+      )
+
+  await sio.save_session(sid, {"channels": [], "user_id": None})
 
 
 @sio.event
 async def join(sid, data):
   channel_id = data.get("channelId") or data.get("channel_id")
+  user_id = data.get("userId") or data.get("user_id")
+
   server, category, channel = await _ensure_channel(channel_id)
   if not channel:
     return False
@@ -674,7 +789,21 @@ async def join(sid, data):
   session = await sio.get_session(sid)
   channels = set(session.get("channels", []))
   channels.add(channel_id)
-  await sio.save_session(sid, {"channels": list(channels)})
+
+  # 사용자 ID 저장
+  if user_id:
+    online_users[sid] = user_id
+    await sio.save_session(sid, {"channels": list(channels), "user_id": user_id})
+
+    # 채널에 온라인 상태 브로드캐스트
+    await sio.emit(
+        "user_status_changed",
+        {"userId": user_id, "status": "online", "channelId": channel_id},
+        room=channel_id,
+    )
+  else:
+    await sio.save_session(sid, {"channels": list(channels)})
+
   await sio.emit("joined", {"channelId": channel_id}, to=sid)
   return True
 

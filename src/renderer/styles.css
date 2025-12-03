@@ -2651,13 +2651,37 @@ body {
   position: relative;
 }
 
-.member-item-avatar::after {
+.member-item-avatar.online::after {
   content: '';
   position: absolute;
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: var(--online);
+  bottom: 0;
+  right: 0;
+  border: 2px solid var(--bg-secondary);
+}
+
+.member-item-avatar.away::after {
+  content: '';
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f59e0b;
+  bottom: 0;
+  right: 0;
+  border: 2px solid var(--bg-secondary);
+}
+
+.member-item-avatar.offline::after {
+  content: '';
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
   bottom: 0;
   right: 0;
   border: 2px solid var(--bg-secondary);
@@ -2683,6 +2707,21 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.member-item-status {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.empty-members {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 13px;
 }
 
 /* 멤버 패널 스크롤바 */

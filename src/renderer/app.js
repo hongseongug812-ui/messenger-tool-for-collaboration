@@ -81,22 +81,11 @@ class WorkMessenger {
     // 테마 설정
     this.currentTheme = 'dark'; // 'dark', 'light', 'system'
 
-    // 서버별 멤버 데이터
-    this.serverMembers = {
-      // 각 서버 ID를 키로 사용하여 멤버 목록 저장
-      // 'server_id': [{ id, name, avatar, role }, ...]
+    // 채널별 멤버 데이터 (API에서 가져옴)
+    this.channelMembers = {
+      // 각 채널 ID를 키로 사용하여 멤버 목록 저장
+      // 'channel_id': [{ id, name, avatar, status }, ...]
     };
-
-    // 기본 멤버 데이터 (새 서버 생성 시 사용)
-    this.defaultMembers = [
-      { id: 'user_1', name: '박지민', avatar: '박', role: '팀장' },
-      { id: 'user_2', name: '최민준', avatar: '최', role: '개발자' },
-      { id: 'user_3', name: '김서연', avatar: '김', role: '디자이너' },
-      { id: 'user_4', name: '이준호', avatar: '이', role: '기획자' },
-      { id: 'user_5', name: '정수아', avatar: '정', role: 'QA' },
-      { id: 'user_6', name: '강민수', avatar: '강', role: '개발자' },
-      { id: 'user_7', name: '윤지우', avatar: '윤', role: '마케터' }
-    ];
 
     // 음성채팅 상태
     this.voiceChat = {
@@ -659,6 +648,21 @@ class WorkMessenger {
       }
     } catch (error) {
       console.error('메시지 로드 실패:', error);
+    }
+  }
+
+  async fetchMembers(channelId) {
+    if (!this.apiBase) return;
+
+    try {
+      const data = await this.apiRequest(`/channels/${channelId}/members`);
+      if (Array.isArray(data)) {
+        this.channelMembers[channelId] = data;
+      }
+    } catch (error) {
+      console.error('멤버 로드 실패:', error);
+      // 멤버 로드 실패 시 빈 배열로 초기화
+      this.channelMembers[channelId] = [];
     }
   }
 
@@ -1544,37 +1548,52 @@ class WorkMessenger {
     await this.fetchMessages(channel.id);
     this.renderMessages(channel.id);
 
-    // 소켓 룸 참가
-    if (window.electronAPI?.emitSocketEvent) {
-      window.electronAPI.emitSocketEvent('join', { channelId: channel.id });
-    }
-
-    // 멤버 패널 표시
+    // 멤버 목록 가져오기 및 렌더링
+    await this.fetchMembers(channel.id);
     this.renderMembers();
+
+    // 소켓 룸 참가 (사용자 ID 포함)
+    if (window.electronAPI?.emitSocketEvent) {
+      window.electronAPI.emitSocketEvent('join', {
+        channelId: channel.id,
+        userId: this.auth?.currentUser?.id || this.user?.id
+      });
+    }
   }
 
   renderMembers() {
     const panel = document.getElementById('members-panel');
     const list = document.getElementById('members-list');
 
-    if (!panel || !list || !this.currentServer) return;
+    if (!panel || !list) return;
 
     // 패널 표시
     panel.style.display = 'flex';
 
-    // 현재 서버의 멤버 가져오기 (없으면 기본 멤버 사용)
-    const members = this.serverMembers[this.currentServer.id] || this.defaultMembers;
+    // 현재 채널의 멤버 가져오기
+    const members = this.currentChannel ? (this.channelMembers[this.currentChannel.id] || []) : [];
 
-    // 멤버 목록 렌더링
-    list.innerHTML = members.map(member => `
-      <div class="member-item" title="${member.name}">
-        <div class="member-item-avatar">${member.avatar}</div>
-        <div class="member-item-info">
-          <div class="member-item-name">${member.name}</div>
-          <div class="member-item-role">${member.role}</div>
+    // 멤버가 없는 경우
+    if (members.length === 0) {
+      list.innerHTML = '<div class="empty-members">멤버가 없습니다.</div>';
+      return;
+    }
+
+    // 멤버 목록 렌더링 (status 필드 기반)
+    list.innerHTML = members.map(member => {
+      const statusClass = member.status === 'online' ? 'online' : member.status === 'away' ? 'away' : 'offline';
+      const statusText = member.status === 'online' ? '온라인' : member.status === 'away' ? '자리비움' : '오프라인';
+
+      return `
+        <div class="member-item" title="${member.name}">
+          <div class="member-item-avatar ${statusClass}">${member.avatar}</div>
+          <div class="member-item-info">
+            <div class="member-item-name">${member.name}</div>
+            <div class="member-item-status">${statusText}</div>
+          </div>
         </div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
 
     // 멤버 검색
     const searchInput = document.getElementById('members-search-input');
@@ -2282,7 +2301,10 @@ class WorkMessenger {
           statusText.innerHTML = '<span class="status-dot connected"></span> 연결됨';
         }
         if (this.currentChannel) {
-          window.electronAPI.emitSocketEvent('join', { channelId: this.currentChannel.id });
+          window.electronAPI.emitSocketEvent('join', {
+            channelId: this.currentChannel.id,
+            userId: this.auth?.currentUser?.id || this.user?.id
+          });
         }
       });
 
@@ -2299,6 +2321,18 @@ class WorkMessenger {
 
       window.electronAPI.onSocketEvent('message', (data) => {
         this.handleIncomingMessage(data);
+      });
+
+      window.electronAPI.onSocketEvent('member_joined', (data) => {
+        this.handleMemberJoined(data);
+      });
+
+      window.electronAPI.onSocketEvent('member_left', (data) => {
+        this.handleMemberLeft(data);
+      });
+
+      window.electronAPI.onSocketEvent('user_status_changed', (data) => {
+        this.handleUserStatusChanged(data);
       });
     } catch (error) {
       console.error('소켓 연결 실패:', error);
@@ -2339,6 +2373,62 @@ class WorkMessenger {
     // 알림 표시
     if (this.currentChannel?.id !== channelId) {
       this.showNotification(normalized.sender.name, normalized.content);
+    }
+  }
+
+  handleMemberJoined(data) {
+    const { channelId, member } = data;
+
+    // 채널 멤버 목록에 추가
+    if (!this.channelMembers[channelId]) {
+      this.channelMembers[channelId] = [];
+    }
+
+    // 중복 체크
+    const exists = this.channelMembers[channelId].some(m => m.id === member.id);
+    if (!exists) {
+      this.channelMembers[channelId].push(member);
+    }
+
+    // 현재 채널의 멤버 패널 업데이트
+    if (this.currentChannel?.id === channelId) {
+      this.renderMembers();
+    }
+
+    console.log(`멤버 ${member.name}이(가) 채널에 참가했습니다.`);
+  }
+
+  handleMemberLeft(data) {
+    const { channelId, userId } = data;
+
+    // 채널 멤버 목록에서 제거
+    if (this.channelMembers[channelId]) {
+      this.channelMembers[channelId] = this.channelMembers[channelId].filter(m => m.id !== userId);
+    }
+
+    // 현재 채널의 멤버 패널 업데이트
+    if (this.currentChannel?.id === channelId) {
+      this.renderMembers();
+    }
+
+    console.log(`멤버 ${userId}이(가) 채널에서 나갔습니다.`);
+  }
+
+  handleUserStatusChanged(data) {
+    const { channelId, userId, status } = data;
+
+    // 채널 멤버의 상태 업데이트
+    if (this.channelMembers[channelId]) {
+      const member = this.channelMembers[channelId].find(m => m.id === userId);
+      if (member) {
+        member.status = status;
+        console.log(`멤버 ${member.name}의 상태가 ${status}로 변경되었습니다.`);
+      }
+    }
+
+    // 현재 채널의 멤버 패널 업데이트
+    if (this.currentChannel?.id === channelId) {
+      this.renderMembers();
     }
   }
 
