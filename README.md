@@ -84,6 +84,7 @@ cp .env.example .env
 | `BACKEND_CORS_ORIGINS` | CORS 허용 도메인(콤마 구분) | `http://localhost:3000,http://localhost:5173,http://localhost:8080` |
 | `MONGO_URI` | MongoDB 연결 URI | `mongodb://localhost:27017` |
 | `MONGO_DB` | MongoDB DB 이름 | `work_messenger` |
+| `JWT_SECRET` | JWT 토큰 서명 키 (필수) | - |
 | `API_KEY` | API 인증 키 (선택) | - |
 | `API_SECRET` | API 시크릿 (선택) | - |
 | `ENCRYPTION_KEY` | 메시지 암호화 키 (32자) | - |
@@ -136,13 +137,52 @@ work-messenger/
 | `Ctrl/Cmd + K` | 검색 |
 | `Esc` | 모달 닫기 |
 
-## 🔌 서버 연결
+## 🔌 서버 연결 및 인증
 
-기본적으로 FastAPI 백엔드와 MongoDB를 사용해 서버/카테고리/채널/메시지를 영구 저장하고 Socket.IO로 동기화합니다.
+기본적으로 FastAPI 백엔드와 MongoDB를 사용해 사용자 인증, 서버/카테고리/채널/메시지를 영구 저장하고 Socket.IO로 동기화합니다.
 
-1. `.env`에 백엔드/Mongo 설정을 입력하고 백엔드를 실행합니다.
-2. 프런트 `.env`의 `SERVER_URL`/`SOCKET_PORT`를 백엔드 포트(기본 8000)로 맞춥니다.
-3. 앱 실행 후 새로운 서버/채널/메시지가 MongoDB(`work_messenger` DB, `servers`/`messages` 컬렉션)에 저장되고 Socket.IO로 실시간 반영됩니다.
+### MongoDB 설정
+
+1. **MongoDB 설치 및 실행**
+   - 로컬: [MongoDB Community Server](https://www.mongodb.com/try/download/community) 설치 후 실행
+   - 클라우드: [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) 무료 클러스터 생성
+
+2. **환경 변수 설정**
+   - `.env` 파일에 MongoDB URI와 JWT 시크릿 설정
+   ```bash
+   MONGO_URI=mongodb://localhost:27017  # 또는 Atlas URI
+   MONGO_DB=work_messenger
+   JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
+   ```
+
+3. **백엔드 실행**
+   ```bash
+   # 의존성 설치 (처음 한 번만)
+   pip install -r backend/requirements.txt
+
+   # 백엔드 실행
+   uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload
+   ```
+
+4. **프런트엔드 실행**
+   - `.env`의 `SERVER_URL`을 백엔드 주소(기본 `http://localhost:8000`)로 설정
+   - 앱 실행 후 회원가입/로그인
+
+### 사용자 인증
+
+앱 첫 실행 시 로그인/회원가입 화면이 표시됩니다:
+
+- **회원가입**: 아이디, 이름, 이메일, 비밀번호 입력
+- **로그인**: 아이디와 비밀번호로 로그인
+- **로그인 상태 유지**: 체크하면 재실행 시 자동 로그인
+- 모든 사용자 정보는 MongoDB에 안전하게 저장됩니다 (비밀번호는 bcrypt로 해싱)
+
+### 데이터 저장
+
+MongoDB `work_messenger` 데이터베이스에 다음 컬렉션들이 생성됩니다:
+- `users`: 사용자 계정 정보
+- `servers`: 서버 및 채널 구조
+- `messages`: 채팅 메시지
 
 ### 메시지 프로토콜 (Socket.IO 예시)
 

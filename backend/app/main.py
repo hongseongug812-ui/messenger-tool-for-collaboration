@@ -1,13 +1,16 @@
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional
 
 import socketio
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic import BaseModel, Field
+from passlib.context import CryptContext
+from jose import JWTError, jwt
+from pydantic import BaseModel, Field, EmailStr
 
 
 def _get_list_env(key: str, default: List[str]) -> List[str]:
@@ -24,6 +27,10 @@ def _now():
 # 환경 변수
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 MONGO_DB = os.getenv("MONGO_DB", "work_messenger")
+JWT_SECRET = os.getenv("JWT_SECRET", "your-secret-key-change-in-production")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRATION_HOURS = 24 * 7  # 7일
+
 cors_origins = _get_list_env(
     "BACKEND_CORS_ORIGINS",
     ["http://localhost:3000", "http://localhost:5173", "http://localhost:8080"],
@@ -34,6 +41,13 @@ mongo_client = AsyncIOMotorClient(MONGO_URI)
 mongo_db = mongo_client[MONGO_DB]
 servers_col = mongo_db["servers"]
 messages_col = mongo_db["messages"]
+users_col = mongo_db["users"]
+
+# 비밀번호 해싱
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# HTTP Bearer 인증
+security = HTTPBearer()
 
 # Socket.IO 서버 (ASGI)
 sio = socketio.AsyncServer(
@@ -56,6 +70,48 @@ fastapi_app.add_middleware(
 # -----------------------------
 # 데이터 모델
 # -----------------------------
+
+# 사용자 인증 모델
+class UserSignup(BaseModel):
+  username: str = Field(..., min_length=3, max_length=30)
+  name: str = Field(..., min_length=1, max_length=50)
+  email: EmailStr
+  password: str = Field(..., min_length=6, max_length=100)
+
+
+class UserLogin(BaseModel):
+  username: str
+  password: str
+
+
+class User(BaseModel):
+  id: str
+  username: str
+  name: str
+  email: str
+  avatar: str
+  created_at: datetime
+
+
+class UserInDB(User):
+  hashed_password: str
+
+
+class Token(BaseModel):
+  access_token: str
+  token_type: str
+
+
+class TokenData(BaseModel):
+  username: Optional[str] = None
+
+
+class AuthResponse(BaseModel):
+  access_token: str
+  token_type: str
+  user: User
+
+
 class Sender(BaseModel):
   id: Optional[str] = None
   name: str = Field(..., min_length=1, max_length=80)
@@ -138,6 +194,65 @@ class StateResponse(BaseModel):
 # -----------------------------
 # 유틸 함수
 # -----------------------------
+
+# 비밀번호 해싱 및 검증
+def hash_password(password: str) -> str:
+  return pwd_context.hash(password)
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+  return pwd_context.verify(plain_password, hashed_password)
+
+
+# JWT 토큰 생성 및 검증
+def create_access_token(data: dict) -> str:
+  to_encode = data.copy()
+  expire = datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRATION_HOURS)
+  to_encode.update({"exp": expire})
+  encoded_jwt = jwt.encode(to_encode, JWT_SECRET, algorithm=JWT_ALGORITHM)
+  return encoded_jwt
+
+
+def decode_access_token(token: str) -> Optional[TokenData]:
+  try:
+    payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    username: str = payload.get("sub")
+    if username is None:
+      return None
+    return TokenData(username=username)
+  except JWTError:
+    return None
+
+
+# 현재 사용자 가져오기
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> User:
+  token = credentials.credentials
+  token_data = decode_access_token(token)
+  if token_data is None or token_data.username is None:
+    raise HTTPException(
+      status_code=status.HTTP_401_UNAUTHORIZED,
+      detail="Invalid authentication credentials",
+      headers={"WWW-Authenticate": "Bearer"},
+    )
+
+  user_doc = await users_col.find_one({"username": token_data.username})
+  if user_doc is None:
+    raise HTTPException(
+      status_code=status.HTTP_401_UNAUTHORIZED,
+      detail="User not found",
+      headers={"WWW-Authenticate": "Bearer"},
+    )
+
+  return User(
+    id=user_doc["_id"],
+    username=user_doc["username"],
+    name=user_doc["name"],
+    email=user_doc["email"],
+    avatar=user_doc["avatar"],
+    created_at=user_doc["created_at"],
+  )
+
+
 def _server_doc_to_model(doc: Dict) -> Server:
   return Server(
       id=doc["_id"],
@@ -184,6 +299,107 @@ async def health():
   return {"status": "ok", "message": "work-messenger backend alive"}
 
 
+# -----------------------------
+# 인증 API
+# -----------------------------
+@fastapi_app.post("/auth/signup", response_model=AuthResponse, status_code=201)
+async def signup(user_data: UserSignup):
+  # 사용자명 중복 확인
+  existing_user = await users_col.find_one({"username": user_data.username})
+  if existing_user:
+    raise HTTPException(
+      status_code=status.HTTP_400_BAD_REQUEST,
+      detail="Username already exists"
+    )
+
+  # 이메일 중복 확인
+  existing_email = await users_col.find_one({"email": user_data.email})
+  if existing_email:
+    raise HTTPException(
+      status_code=status.HTTP_400_BAD_REQUEST,
+      detail="Email already exists"
+    )
+
+  # 사용자 생성
+  user_id = f"user_{uuid.uuid4().hex[:12]}"
+  hashed_password = hash_password(user_data.password)
+  avatar = user_data.name[:1].upper()
+
+  user_doc = {
+    "_id": user_id,
+    "username": user_data.username,
+    "name": user_data.name,
+    "email": user_data.email,
+    "avatar": avatar,
+    "hashed_password": hashed_password,
+    "created_at": _now(),
+  }
+
+  await users_col.insert_one(user_doc)
+
+  # JWT 토큰 생성
+  access_token = create_access_token(data={"sub": user_data.username})
+
+  user = User(
+    id=user_id,
+    username=user_data.username,
+    name=user_data.name,
+    email=user_data.email,
+    avatar=avatar,
+    created_at=user_doc["created_at"],
+  )
+
+  return AuthResponse(
+    access_token=access_token,
+    token_type="bearer",
+    user=user
+  )
+
+
+@fastapi_app.post("/auth/login", response_model=AuthResponse)
+async def login(credentials: UserLogin):
+  # 사용자 찾기
+  user_doc = await users_col.find_one({"username": credentials.username})
+  if not user_doc:
+    raise HTTPException(
+      status_code=status.HTTP_401_UNAUTHORIZED,
+      detail="Incorrect username or password"
+    )
+
+  # 비밀번호 확인
+  if not verify_password(credentials.password, user_doc["hashed_password"]):
+    raise HTTPException(
+      status_code=status.HTTP_401_UNAUTHORIZED,
+      detail="Incorrect username or password"
+    )
+
+  # JWT 토큰 생성
+  access_token = create_access_token(data={"sub": credentials.username})
+
+  user = User(
+    id=user_doc["_id"],
+    username=user_doc["username"],
+    name=user_doc["name"],
+    email=user_doc["email"],
+    avatar=user_doc["avatar"],
+    created_at=user_doc["created_at"],
+  )
+
+  return AuthResponse(
+    access_token=access_token,
+    token_type="bearer",
+    user=user
+  )
+
+
+@fastapi_app.get("/auth/me", response_model=User)
+async def get_me(current_user: User = Depends(get_current_user)):
+  return current_user
+
+
+# -----------------------------
+# 서버 및 채널 API
+# -----------------------------
 @fastapi_app.get("/state", response_model=StateResponse)
 async def get_state():
   servers_cursor = servers_col.find({})

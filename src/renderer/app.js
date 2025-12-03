@@ -11,6 +11,8 @@ class WorkMessenger {
     this.messages = {};
     this.pinnedMessages = {};
     this.reactions = {}; // 메시지 리액션 저장: { channelId: { messageId: { emoji: [userId, ...] } } }
+    this.threads = {}; // 스레드 저장: { channelId: { messageId: [replies...] } }
+    this.currentThread = null; // 현재 열린 스레드: { channelId, messageId, message }
     this.apiBase = '';
     this.loadedMessages = new Set();
     this.user = {
@@ -162,6 +164,15 @@ class WorkMessenger {
       { name: '/nick', description: '닉네임 변경' }
     ];
 
+    // 인증 상태
+    this.auth = {
+      isAuthenticated: false,
+      currentUser: null
+    };
+
+    // 인증 토큰
+    this.authToken = null;
+
     this.init();
   }
 
@@ -174,6 +185,32 @@ class WorkMessenger {
     // 테마 로드 및 적용
     this.loadTheme();
 
+    // 인증 체크
+    const isAuthenticated = this.checkAuth();
+
+    // 로딩 화면 숨기기 (부드러운 페이드아웃)
+    requestAnimationFrame(() => {
+      const loadingScreen = document.getElementById('loading-screen');
+      if (loadingScreen) {
+        loadingScreen.classList.add('hidden');
+        // 애니메이션 완료 후 DOM에서 제거
+        setTimeout(() => {
+          loadingScreen.remove();
+        }, 300);
+      }
+    });
+
+    // 인증되지 않은 경우 로그인 화면 표시
+    if (!isAuthenticated) {
+      this.showAuthScreen();
+      return;
+    }
+
+    // 인증된 경우 앱 초기화 계속
+    await this.initializeApp();
+  }
+
+  async initializeApp() {
     // 설정 로드
     await this.loadConfig();
     this.apiBase = this.config?.serverUrl || '';
@@ -193,17 +230,8 @@ class WorkMessenger {
     // 소켓 연결 (서버가 있을 경우)
     this.connectSocket();
 
-    // 로딩 화면 숨기기 (부드러운 페이드아웃)
-    requestAnimationFrame(() => {
-      const loadingScreen = document.getElementById('loading-screen');
-      if (loadingScreen) {
-        loadingScreen.classList.add('hidden');
-        // 애니메이션 완료 후 DOM에서 제거
-        setTimeout(() => {
-          loadingScreen.remove();
-        }, 300);
-      }
-    });
+    // 메인 앱 표시
+    document.getElementById('app').style.display = 'flex';
 
     console.log('Work Messenger 초기화 완료');
   }
@@ -244,6 +272,299 @@ class WorkMessenger {
       return response.json();
     }
     return null;
+  }
+
+  // ========================================
+  // 인증 관련 메서드
+  // ========================================
+
+  async checkAuth() {
+    // localStorage에서 토큰 확인 (로그인 상태 유지)
+    const token = localStorage.getItem('work_messenger_token');
+    if (token) {
+      this.authToken = token;
+      const user = await this.verifyToken(token);
+      if (user) {
+        this.auth.isAuthenticated = true;
+        this.auth.currentUser = user;
+        this.updateUserInfo(user);
+        return true;
+      }
+      // 토큰이 유효하지 않으면 제거
+      localStorage.removeItem('work_messenger_token');
+    }
+
+    // sessionStorage에서 토큰 확인 (현재 세션만)
+    const tempToken = sessionStorage.getItem('work_messenger_token');
+    if (tempToken) {
+      this.authToken = tempToken;
+      const user = await this.verifyToken(tempToken);
+      if (user) {
+        this.auth.isAuthenticated = true;
+        this.auth.currentUser = user;
+        this.updateUserInfo(user);
+        return true;
+      }
+      // 토큰이 유효하지 않으면 제거
+      sessionStorage.removeItem('work_messenger_token');
+    }
+
+    return false;
+  }
+
+  async verifyToken(token) {
+    try {
+      const response = await fetch(`${this.apiBase}/auth/me`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        return await response.json();
+      }
+      return null;
+    } catch (error) {
+      console.error('토큰 검증 실패:', error);
+      return null;
+    }
+  }
+
+  updateUserInfo(user) {
+    this.user.name = user.name;
+    this.user.avatar = user.avatar || user.name.charAt(0);
+    this.profile.name = user.name;
+    this.profile.email = user.email;
+  }
+
+  showAuthScreen() {
+    const authScreen = document.getElementById('auth-screen');
+    const app = document.getElementById('app');
+
+    if (authScreen) {
+      authScreen.style.display = 'flex';
+      app.style.display = 'none';
+
+      // 인증 이벤트 리스너 바인딩
+      this.bindAuthEvents();
+    }
+  }
+
+  hideAuthScreen() {
+    const authScreen = document.getElementById('auth-screen');
+    const app = document.getElementById('app');
+
+    if (authScreen) {
+      authScreen.style.display = 'none';
+      app.style.display = 'flex';
+    }
+  }
+
+  bindAuthEvents() {
+    // 로그인 폼 제출
+    const loginForm = document.getElementById('login-form-element');
+    if (loginForm) {
+      loginForm.addEventListener('submit', (e) => this.handleLogin(e));
+    }
+
+    // 회원가입 폼 제출
+    const signupForm = document.getElementById('signup-form-element');
+    if (signupForm) {
+      signupForm.addEventListener('submit', (e) => this.handleSignup(e));
+    }
+
+    // 폼 전환 버튼
+    const showSignupBtn = document.getElementById('show-signup');
+    const showLoginBtn = document.getElementById('show-login');
+
+    if (showSignupBtn) {
+      showSignupBtn.addEventListener('click', () => this.switchToSignup());
+    }
+
+    if (showLoginBtn) {
+      showLoginBtn.addEventListener('click', () => this.switchToLogin());
+    }
+  }
+
+  switchToSignup() {
+    document.getElementById('login-form').style.display = 'none';
+    document.getElementById('signup-form').style.display = 'block';
+    this.clearAuthMessages();
+  }
+
+  switchToLogin() {
+    document.getElementById('signup-form').style.display = 'none';
+    document.getElementById('login-form').style.display = 'block';
+    this.clearAuthMessages();
+  }
+
+  clearAuthMessages() {
+    const errors = document.querySelectorAll('.auth-error, .auth-success');
+    errors.forEach(el => el.remove());
+  }
+
+  showAuthError(formId, message) {
+    this.clearAuthMessages();
+    const form = document.getElementById(formId);
+    const errorDiv = document.createElement('div');
+    errorDiv.className = 'auth-error';
+    errorDiv.textContent = message;
+    form.insertBefore(errorDiv, form.querySelector('form'));
+  }
+
+  showAuthSuccess(formId, message) {
+    this.clearAuthMessages();
+    const form = document.getElementById(formId);
+    const successDiv = document.createElement('div');
+    successDiv.className = 'auth-success';
+    successDiv.textContent = message;
+    form.insertBefore(successDiv, form.querySelector('form'));
+  }
+
+  async handleLogin(e) {
+    e.preventDefault();
+
+    const username = document.getElementById('login-username').value.trim();
+    const password = document.getElementById('login-password').value;
+    const rememberMe = document.getElementById('remember-me').checked;
+
+    if (!username || !password) {
+      this.showAuthError('login-form', '아이디와 비밀번호를 입력하세요.');
+      return;
+    }
+
+    try {
+      // 백엔드 API 호출
+      const response = await fetch(`${this.apiBase}/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ username, password })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        this.showAuthError('login-form', data.detail || '로그인에 실패했습니다.');
+        return;
+      }
+
+      // 로그인 성공
+      this.authToken = data.access_token;
+      this.auth.isAuthenticated = true;
+      this.auth.currentUser = data.user;
+
+      // 토큰 저장
+      if (rememberMe) {
+        localStorage.setItem('work_messenger_token', data.access_token);
+      } else {
+        sessionStorage.setItem('work_messenger_token', data.access_token);
+      }
+
+      // 사용자 정보 업데이트
+      this.updateUserInfo(data.user);
+
+      // 로그인 화면 숨기기
+      this.hideAuthScreen();
+
+      // 앱 초기화
+      await this.initializeApp();
+    } catch (error) {
+      console.error('로그인 오류:', error);
+      this.showAuthError('login-form', '서버 연결에 실패했습니다. 백엔드 서버가 실행 중인지 확인하세요.');
+    }
+  }
+
+  async handleSignup(e) {
+    e.preventDefault();
+
+    const username = document.getElementById('signup-username').value.trim();
+    const name = document.getElementById('signup-name').value.trim();
+    const email = document.getElementById('signup-email').value.trim();
+    const password = document.getElementById('signup-password').value;
+    const passwordConfirm = document.getElementById('signup-password-confirm').value;
+
+    // 클라이언트 측 유효성 검사
+    if (!username || !name || !email || !password) {
+      this.showAuthError('signup-form', '모든 필드를 입력하세요.');
+      return;
+    }
+
+    if (username.length < 3) {
+      this.showAuthError('signup-form', '아이디는 3자 이상이어야 합니다.');
+      return;
+    }
+
+    if (password.length < 6) {
+      this.showAuthError('signup-form', '비밀번호는 6자 이상이어야 합니다.');
+      return;
+    }
+
+    if (password !== passwordConfirm) {
+      this.showAuthError('signup-form', '비밀번호가 일치하지 않습니다.');
+      return;
+    }
+
+    try {
+      // 백엔드 API 호출
+      const response = await fetch(`${this.apiBase}/auth/signup`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ username, name, email, password })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        let errorMessage = '회원가입에 실패했습니다.';
+        if (data.detail) {
+          if (data.detail.includes('Username')) {
+            errorMessage = '이미 존재하는 아이디입니다.';
+          } else if (data.detail.includes('Email')) {
+            errorMessage = '이미 존재하는 이메일입니다.';
+          } else {
+            errorMessage = data.detail;
+          }
+        }
+        this.showAuthError('signup-form', errorMessage);
+        return;
+      }
+
+      // 회원가입 성공
+      this.showAuthSuccess('signup-form', '회원가입이 완료되었습니다. 로그인해주세요.');
+
+      // 폼 초기화
+      document.getElementById('signup-form-element').reset();
+
+      // 2초 후 로그인 화면으로 전환
+      setTimeout(() => {
+        this.switchToLogin();
+      }, 2000);
+    } catch (error) {
+      console.error('회원가입 오류:', error);
+      this.showAuthError('signup-form', '서버 연결에 실패했습니다. 백엔드 서버가 실행 중인지 확인하세요.');
+    }
+  }
+
+  logout() {
+    // 토큰 제거
+    localStorage.removeItem('work_messenger_token');
+    sessionStorage.removeItem('work_messenger_token');
+
+    // 인증 상태 초기화
+    this.auth.isAuthenticated = false;
+    this.auth.currentUser = null;
+    this.authToken = null;
+
+    // 앱 숨기고 로그인 화면 표시
+    this.showAuthScreen();
+
+    console.log('로그아웃 완료');
   }
 
   normalizeMessage(msg) {
@@ -627,6 +948,32 @@ class WorkMessenger {
 
     // 화이트보드 모달 이벤트
     this.setupWhiteboardEvents();
+
+    // 스레드 패널 이벤트
+    const closeThreadPanel = document.getElementById('close-thread-panel');
+    closeThreadPanel?.addEventListener('click', () => {
+      this.closeThread();
+    });
+
+    // 스레드 입력
+    const threadInput = document.getElementById('thread-input');
+    const sendThreadReplyBtn = document.getElementById('send-thread-reply');
+
+    threadInput?.addEventListener('input', (e) => {
+      this.autoResizeTextarea(e.target);
+      sendThreadReplyBtn.disabled = !e.target.value.trim();
+    });
+
+    threadInput?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        this.sendThreadReply();
+      }
+    });
+
+    sendThreadReplyBtn?.addEventListener('click', () => {
+      this.sendThreadReply();
+    });
   }
 
   autoResizeTextarea(textarea) {
@@ -1456,19 +1803,12 @@ class WorkMessenger {
   // 메시지 관리
   // ========================================
 
-  renderMessages(channelId) {
-    const container = document.getElementById('messages');
-    container.innerHTML = '';
-
-    const messages = this.messages[channelId] || [];
-    const pinnedIds = this.pinnedMessages[channelId] || [];
-
-    messages.forEach(msg => {
-      const msgEl = document.createElement('div');
-      const isPinned = pinnedIds.includes(msg.id);
-      msgEl.className = `message${msg.sent ? ' sent' : ''}${isPinned ? ' pinned' : ''}`;
-      msgEl.dataset.messageId = msg.id;
-      msgEl.dataset.channelId = channelId;
+  // 메시지 요소 생성 (재사용 가능한 함수)
+  createMessageElement(msg, channelId, isPinned = false) {
+    const msgEl = document.createElement('div');
+    msgEl.className = `message${msg.sent ? ' sent' : ''}${isPinned ? ' pinned' : ''}`;
+    msgEl.dataset.messageId = msg.id;
+    msgEl.dataset.channelId = channelId;
 
       // 파일 첨부 HTML 생성
       let filesHTML = '';
@@ -1510,6 +1850,21 @@ class WorkMessenger {
         filesHTML += '</div>';
       }
 
+      // 스레드 카운트 HTML 생성
+      const threadCount = this.getThreadCount(msg.id, channelId);
+      let threadCountHTML = '';
+      if (threadCount > 0) {
+        threadCountHTML = `
+          <div class="message-thread-count" onclick="window.app.openThread(${msg.id}, '${channelId}')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+              <path d="M7 8h10M7 12h7M7 16h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              <path d="M3 12h0M21 12h0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            <span>${threadCount}개의 답글</span>
+          </div>
+        `;
+      }
+
       msgEl.innerHTML = `
         <div class="avatar">${msg.sender.avatar}</div>
         <div class="message-content">
@@ -1520,6 +1875,7 @@ class WorkMessenger {
           ${msg.content ? `<div class="message-bubble">${this.formatMessage(msg.content)}</div>` : ''}
           ${filesHTML}
           ${this.renderMessageReactions(msg.id, channelId)}
+          ${threadCountHTML}
         </div>
       `;
 
@@ -1540,15 +1896,54 @@ class WorkMessenger {
         });
       });
 
-      container.appendChild(msgEl);
+    return msgEl;
+  }
+
+  // 전체 메시지 렌더링 (DocumentFragment로 최적화)
+  renderMessages(channelId) {
+    const container = document.getElementById('messages');
+    container.innerHTML = '';
+
+    const messages = this.messages[channelId] || [];
+    const pinnedIds = this.pinnedMessages[channelId] || [];
+
+    // DocumentFragment를 사용하여 DOM 조작 최소화
+    const fragment = document.createDocumentFragment();
+
+    messages.forEach(msg => {
+      const isPinned = pinnedIds.includes(msg.id);
+      const msgEl = this.createMessageElement(msg, channelId, isPinned);
+      fragment.appendChild(msgEl);
     });
+
+    container.appendChild(fragment);
 
     // 고정된 메시지 패널 업데이트
     this.updatePinnedPanel();
 
     // 스크롤 맨 아래로
+    this.scrollToBottom();
+  }
+
+  // 새 메시지만 추가 (성능 최적화)
+  appendMessage(msg, channelId) {
+    const container = document.getElementById('messages');
+    const pinnedIds = this.pinnedMessages[channelId] || [];
+    const isPinned = pinnedIds.includes(msg.id);
+
+    const msgEl = this.createMessageElement(msg, channelId, isPinned);
+    container.appendChild(msgEl);
+
+    // 스크롤 맨 아래로
+    this.scrollToBottom();
+  }
+
+  // 스크롤을 맨 아래로 이동
+  scrollToBottom() {
     const messagesContainer = document.getElementById('messages-container');
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    if (messagesContainer) {
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
   }
 
   formatMessage(content) {
@@ -1809,8 +2204,8 @@ class WorkMessenger {
     }
     this.messages[this.currentChannel.id].push(finalMessage);
 
-    // UI 업데이트
-    this.renderMessages(this.currentChannel.id);
+    // UI 업데이트 (새 메시지만 추가 - 성능 최적화)
+    this.appendMessage(finalMessage, this.currentChannel.id);
 
     // 입력창 및 첨부파일 초기화
     input.value = '';
@@ -1943,6 +2338,9 @@ class WorkMessenger {
     const { message, channelId } = target;
 
     switch (action) {
+      case 'thread':
+        this.openThread(message.id, channelId);
+        break;
       case 'reaction':
         this.showEmojiPicker(message, channelId);
         break;
@@ -2163,6 +2561,238 @@ class WorkMessenger {
       }
 
       this.renderMessages(channelId);
+    }
+  }
+
+  // ========================================
+  // 스레드 기능
+  // ========================================
+
+  getThreadCount(messageId, channelId) {
+    if (!this.threads[channelId] || !this.threads[channelId][messageId]) {
+      return 0;
+    }
+    return this.threads[channelId][messageId].length;
+  }
+
+  openThread(messageId, channelId) {
+    const messages = this.messages[channelId] || [];
+    const message = messages.find(m => m.id === messageId);
+
+    if (!message) return;
+
+    this.currentThread = { messageId, channelId, message };
+
+    // 스레드 패널 표시
+    const threadPanel = document.getElementById('thread-panel');
+    threadPanel.style.display = 'flex';
+
+    // 원본 메시지 렌더링
+    const originalMessageEl = document.getElementById('thread-original-message');
+    originalMessageEl.innerHTML = `
+      <div class="message">
+        <div class="avatar">${message.sender.avatar}</div>
+        <div class="message-content">
+          <div class="message-header">
+            <span class="message-sender">${message.sender.name}</span>
+            <span class="message-time">${message.time}</span>
+          </div>
+          ${message.content ? `<div class="message-bubble">${this.formatMessage(message.content)}</div>` : ''}
+        </div>
+      </div>
+    `;
+
+    // 스레드 렌더링
+    this.renderThread();
+
+    // 입력창 초기화
+    const threadInput = document.getElementById('thread-input');
+    threadInput.value = '';
+    threadInput.style.height = 'auto';
+  }
+
+  closeThread() {
+    const threadPanel = document.getElementById('thread-panel');
+    threadPanel.style.display = 'none';
+    this.currentThread = null;
+  }
+
+  sendThreadReply() {
+    if (!this.currentThread) return;
+
+    const input = document.getElementById('thread-input');
+    const content = input.value.trim();
+
+    if (!content) return;
+
+    const { messageId, channelId } = this.currentThread;
+
+    // 스레드 초기화
+    if (!this.threads[channelId]) {
+      this.threads[channelId] = {};
+    }
+    if (!this.threads[channelId][messageId]) {
+      this.threads[channelId][messageId] = [];
+    }
+
+    // 답글 생성
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('ko-KR', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+
+    const reply = {
+      id: Date.now(),
+      content: content,
+      sender: {
+        name: this.user.name,
+        avatar: this.user.avatar
+      },
+      time: timeStr,
+      timestamp: now
+    };
+
+    // 답글 추가
+    this.threads[channelId][messageId].push(reply);
+
+    // 입력창 초기화
+    input.value = '';
+    input.style.height = 'auto';
+    document.getElementById('send-thread-reply').disabled = true;
+
+    // 새 답글만 추가 (성능 최적화)
+    this.appendThreadReply(reply);
+
+    // 원본 메시지의 스레드 카운트만 업데이트 (전체 렌더링 방지)
+    this.updateThreadCount(messageId, channelId);
+
+    // 소켓으로 전송 (서버 연결 시)
+    if (this.socket?.connected) {
+      this.socket.emit('thread-reply', {
+        channelId,
+        messageId,
+        reply
+      });
+    }
+  }
+
+  // 전체 스레드 렌더링
+  renderThread() {
+    if (!this.currentThread) return;
+
+    const { messageId, channelId } = this.currentThread;
+    const replies = this.threads[channelId]?.[messageId] || [];
+
+    // 답글 개수 업데이트
+    const replyCountEl = document.getElementById('thread-reply-count');
+    if (replyCountEl) {
+      replyCountEl.textContent = `${replies.length}개의 답글`;
+    }
+
+    // 답글 렌더링
+    const container = document.getElementById('thread-messages');
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    const fragment = document.createDocumentFragment();
+    replies.forEach(reply => {
+      const replyEl = this.createThreadReplyElement(reply);
+      fragment.appendChild(replyEl);
+    });
+
+    container.appendChild(fragment);
+
+    // 스크롤 맨 아래로
+    this.scrollThreadToBottom();
+  }
+
+  // 스레드 답글 요소 생성
+  createThreadReplyElement(reply) {
+    const replyEl = document.createElement('div');
+    replyEl.className = 'message';
+    replyEl.innerHTML = `
+      <div class="avatar">${reply.sender.avatar}</div>
+      <div class="message-content">
+        <div class="message-header">
+          <span class="message-sender">${reply.sender.name}</span>
+          <span class="message-time">${reply.time}</span>
+        </div>
+        <div class="message-bubble">${this.formatMessage(reply.content)}</div>
+      </div>
+    `;
+    return replyEl;
+  }
+
+  // 새 스레드 답글만 추가 (성능 최적화)
+  appendThreadReply(reply) {
+    const container = document.getElementById('thread-messages');
+    if (!container) return;
+
+    const replyEl = this.createThreadReplyElement(reply);
+    container.appendChild(replyEl);
+
+    // 답글 개수 업데이트
+    if (this.currentThread) {
+      const { messageId, channelId } = this.currentThread;
+      const count = this.threads[channelId]?.[messageId]?.length || 0;
+      const replyCountEl = document.getElementById('thread-reply-count');
+      if (replyCountEl) {
+        replyCountEl.textContent = `${count}개의 답글`;
+      }
+    }
+
+    // 스크롤 맨 아래로
+    this.scrollThreadToBottom();
+  }
+
+  // 스레드 스크롤을 맨 아래로
+  scrollThreadToBottom() {
+    const messagesContainer = document.querySelector('.thread-messages-container');
+    if (messagesContainer) {
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+  }
+
+  // 메시지의 스레드 카운트만 업데이트 (전체 렌더링 방지)
+  updateThreadCount(messageId, channelId) {
+    const count = this.getThreadCount(messageId, channelId);
+    const messageEl = document.querySelector(`[data-message-id="${messageId}"][data-channel-id="${channelId}"]`);
+
+    if (!messageEl) return;
+
+    // 기존 스레드 카운트 요소 찾기
+    let threadCountEl = messageEl.querySelector('.message-thread-count');
+
+    if (count > 0) {
+      if (threadCountEl) {
+        // 카운트 업데이트
+        const countSpan = threadCountEl.querySelector('span');
+        if (countSpan) {
+          countSpan.textContent = `${count}개의 답글`;
+        }
+      } else {
+        // 새로 생성
+        const messageContent = messageEl.querySelector('.message-content');
+        if (messageContent) {
+          threadCountEl = document.createElement('div');
+          threadCountEl.className = 'message-thread-count';
+          threadCountEl.onclick = () => this.openThread(messageId, channelId);
+          threadCountEl.innerHTML = `
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+              <path d="M7 8h10M7 12h7M7 16h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              <path d="M3 12h0M21 12h0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            <span>${count}개의 답글</span>
+          `;
+          messageContent.appendChild(threadCountEl);
+        }
+      }
+    } else if (threadCountEl) {
+      // 카운트가 0이면 제거
+      threadCountEl.remove();
     }
   }
 
