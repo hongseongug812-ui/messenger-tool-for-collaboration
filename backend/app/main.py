@@ -224,6 +224,13 @@ class ServerCreate(BaseModel):
   avatar: Optional[str] = Field(default=None, max_length=2)
 
 
+class InviteRequest(BaseModel):
+  user_id: Optional[str] = None
+  username: Optional[str] = None
+  email: Optional[str] = None
+  channel_ids: Optional[List[str]] = None
+
+
 class CategoryCreate(BaseModel):
   name: str = Field(..., min_length=1, max_length=80)
   collapsed: bool = False
@@ -454,8 +461,9 @@ async def logout():
 # 서버 및 채널 API
 # -----------------------------
 @fastapi_app.get("/state", response_model=StateResponse)
-async def get_state():
-  servers_cursor = servers_col.find({})
+async def get_state(current_user: User = Depends(get_current_user)):
+  # 가입한 서버만 조회
+  servers_cursor = servers_col.find({"members.id": current_user.id})
   servers: List[Server] = []
   async for doc in servers_cursor:
     servers.append(_server_doc_to_model(doc))
@@ -463,7 +471,7 @@ async def get_state():
 
 
 @fastapi_app.post("/servers", response_model=Server, status_code=201)
-async def create_server(payload: ServerCreate):
+async def create_server(payload: ServerCreate, current_user: User = Depends(get_current_user)):
   server_id = f"server_{uuid.uuid4().hex[:10]}"
   default_category = Category(
       id=f"cat_{uuid.uuid4().hex[:8]}",
@@ -476,15 +484,88 @@ async def create_server(payload: ServerCreate):
           )
       ],
   )
+
+  owner_member = {
+      "id": current_user.id,
+      "name": current_user.name,
+      "avatar": current_user.avatar or current_user.name[:1],
+      "status": "online",
+  }
+
   doc = {
       "_id": server_id,
       "name": payload.name,
       "avatar": payload.avatar or payload.name[:1],
       "categories": [default_category.model_dump()],
+      "members": [owner_member],
       "created_at": _now(),
   }
   await servers_col.insert_one(doc)
   return _server_doc_to_model(doc)
+
+
+@fastapi_app.post("/servers/{server_id}/invite", response_model=Server)
+async def invite_to_server(server_id: str, payload: InviteRequest, current_user: User = Depends(get_current_user)):
+  # 서버 존재 및 권한 확인 (현재 사용자가 멤버인지 확인)
+  server_doc = await servers_col.find_one({"_id": server_id, "members.id": current_user.id})
+  if not server_doc:
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed or server not found")
+
+  # 초대 대상 사용자 확인 (ID, username, email 중 하나로 조회)
+  query = []
+  if payload.user_id:
+    query.append({"_id": payload.user_id})
+  if payload.username:
+    query.append({"username": payload.username})
+  if payload.email:
+    query.append({"email": payload.email})
+  if not query:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="user_id, username, or email is required")
+
+  target_user = await users_col.find_one({"$or": query})
+  if not target_user:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+  member = await _get_member_summary(target_user["_id"])
+  member["status"] = "offline"
+
+  # 서버 멤버에 추가
+  await servers_col.update_one(
+      {"_id": server_id},
+      {"$addToSet": {"members": member}},
+  )
+
+  # 채널 멤버에도 추가 (지정된 channel_ids 또는 모든 채널)
+  categories = server_doc.get("categories", [])
+  target_channel_ids = payload.channel_ids or [
+      ch.get("id") for cat in categories for ch in cat.get("channels", [])
+  ]
+
+  if target_channel_ids:
+    for cat in categories:
+      for ch in cat.get("channels", []):
+        if ch.get("id") in target_channel_ids:
+          members = ch.get("members", [])
+          if not any(m.get("id") == member["id"] for m in members):
+            members.append(member)
+          ch["members"] = members
+
+    await servers_col.update_one(
+        {"_id": server_id},
+        {"$set": {"categories": categories}},
+    )
+
+    # 소켓 이벤트로 각 채널에 멤버 추가 알림
+    for ch_id in target_channel_ids:
+      await sio.emit(
+          "member_joined",
+          {"channelId": ch_id, "member": member},
+          room=ch_id,
+      )
+
+  # 최신 서버 반환
+  updated_server = await servers_col.find_one({"_id": server_id})
+  return _server_doc_to_model(updated_server)
 
 
 @fastapi_app.post(
@@ -673,6 +754,11 @@ async def create_message(channel_id: str, payload: MessageCreate):
   server, category, channel = await _ensure_channel(channel_id)
   if not channel:
     raise HTTPException(status_code=404, detail="Channel not found")
+  if payload.sender and payload.sender.id:
+    # 서버 멤버가 아닌 경우 차단
+    server_doc = await servers_col.find_one({"_id": server.id, "members.id": payload.sender.id})
+    if not server_doc:
+      raise HTTPException(status_code=403, detail="Not a member of this server")
 
   sender = _build_sender(payload.sender)
   message = Message(
@@ -955,6 +1041,7 @@ async def message(sid, data):
       "message",
       {"channelId": channel_id, "message": _message_to_response(message_obj)},
       room=channel_id,
+      skip_sid=sid,  # 보낸 클라이언트를 제외하고 다른 참가자에게만 전송
   )
   return True
 
