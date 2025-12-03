@@ -92,36 +92,37 @@
     </div>
   </div>
 
+  <!-- 커스텀 타이틀바 (항상 표시) -->
+  <header class="titlebar" id="titlebar">
+    <div class="titlebar-drag">
+      <div class="app-logo">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+          <rect x="2" y="4" width="20" height="16" rx="3" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M6 9h12M6 13h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span>Work Messenger</span>
+      </div>
+    </div>
+    <div class="titlebar-controls">
+      <button class="titlebar-btn" id="btn-minimize" title="최소화">
+        <svg width="12" height="12" viewBox="0 0 12 12">
+          <rect y="5" width="12" height="2" fill="currentColor"/>
+        </svg>
+      </button>
+      <button class="titlebar-btn" id="btn-maximize" title="최대화">
+        <svg width="12" height="12" viewBox="0 0 12 12">
+          <rect x="1" y="1" width="10" height="10" stroke="currentColor" stroke-width="1.5" fill="none"/>
+        </svg>
+      </button>
+      <button class="titlebar-btn btn-close" id="btn-close" title="닫기">
+        <svg width="12" height="12" viewBox="0 0 12 12">
+          <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.5"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
   <div id="app">
-    <!-- 커스텀 타이틀바 -->
-    <header class="titlebar" id="titlebar">
-      <div class="titlebar-drag">
-        <div class="app-logo">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-            <rect x="2" y="4" width="20" height="16" rx="3" stroke="currentColor" stroke-width="1.5"/>
-            <path d="M6 9h12M6 13h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          </svg>
-          <span>Work Messenger</span>
-        </div>
-      </div>
-      <div class="titlebar-controls">
-        <button class="titlebar-btn" id="btn-minimize" title="최소화">
-          <svg width="12" height="12" viewBox="0 0 12 12">
-            <rect y="5" width="12" height="2" fill="currentColor"/>
-          </svg>
-        </button>
-        <button class="titlebar-btn" id="btn-maximize" title="최대화">
-          <svg width="12" height="12" viewBox="0 0 12 12">
-            <rect x="1" y="1" width="10" height="10" stroke="currentColor" stroke-width="1.5" fill="none"/>
-          </svg>
-        </button>
-        <button class="titlebar-btn btn-close" id="btn-close" title="닫기">
-          <svg width="12" height="12" viewBox="0 0 12 12">
-            <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.5"/>
-          </svg>
-        </button>
-      </div>
-    </header>
 
     <!-- 메인 컨테이너 -->
     <main class="main-container">

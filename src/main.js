@@ -1,12 +1,32 @@
 console.log('[Main Process] Loading...');
 const electron = require('electron');
+const { spawn } = require('child_process');
+const path = require('path');
+
+// ELECTRON_RUN_AS_NODE 가 설정되어 있으면 Electron이 Node 모드로 올라가 app 이 undefined가 되어 UI가 나오지 않는다.
+// 감지해서 환경변수를 지운 뒤 정상 모드로 다시 실행한다.
+if (process.env.ELECTRON_RUN_AS_NODE === '1' && !process.env.WM_ELECTRON_RERUN) {
+  const electronBinary = typeof electron === 'string' ? electron : require('electron');
+  const child = spawn(electronBinary, ['.'], {
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '', WM_ELECTRON_RERUN: '1' },
+    stdio: 'inherit'
+  });
+  child.on('exit', (code) => process.exit(code ?? 0));
+  return;
+}
+
 console.log('[Main Process] Electron loaded:', !!electron);
 console.log('[Main Process] Electron keys:', typeof electron === 'object' ? Object.keys(electron).slice(0, 20) : typeof electron);
 const { app, BrowserWindow, Tray, Menu, nativeImage, Notification } = electron || {};
 const { ipcMain } = electron || {};
 console.log('[Main Process] app available:', !!app);
 console.log('[Main Process] electron.app:', !!electron.app);
-const path = require('path');
+
+// Windows에서 sandbox 파이프 생성이 차단될 때 발생하는 Access Denied(FATAL:platform_channel) 회피용.
+// 보안상 sandbox가 비활성화되므로 신뢰된 PC에서만 사용하세요.
+if (app) {
+  app.commandLine.appendSwitch('no-sandbox');
+}
 
 // 환경변수 로드
 try {

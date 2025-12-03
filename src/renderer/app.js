@@ -110,6 +110,16 @@ class WorkMessenger {
       events: []
     };
 
+    // 서버/멤버 데모 데이터 기본값
+    this.serverMembers = {};
+    this.defaultMembers = [
+      { id: 'user_1', name: 'User 1', avatar: 'U1', role: 'member' },
+      { id: 'user_2', name: 'User 2', avatar: 'U2', role: 'member' },
+      { id: 'user_3', name: 'User 3', avatar: 'U3', role: 'designer' },
+      { id: 'user_4', name: 'User 4', avatar: 'U4', role: 'pm' },
+      { id: 'user_5', name: 'User 5', avatar: 'U5', role: 'qa' }
+    ];
+
     // 프로필 데이터
     this.profile = {
       name: '사용자',

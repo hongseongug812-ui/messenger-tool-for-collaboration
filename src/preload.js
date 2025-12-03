@@ -1,5 +1,28 @@
 const { contextBridge, ipcRenderer } = require('electron');
-const { io } = require('socket.io-client');
+let pathModule = null;
+let Module = null;
+
+try {
+  pathModule = require('path');
+  Module = require('module');
+} catch (error) {
+  console.warn('[Preload] path/module unavailable in this environment, skipping module path tweaks:', error.message);
+}
+
+// Ensure node_modules resolution works even when Electron is started from an elevated/system shell
+if (pathModule && Module) {
+  const rootNodeModules = pathModule.join(__dirname, '..', 'node_modules');
+  if (!Module.globalPaths.includes(rootNodeModules)) {
+    Module.globalPaths.push(rootNodeModules);
+  }
+}
+
+let ioClient = null;
+try {
+  ({ io: ioClient } = require('socket.io-client'));
+} catch (error) {
+  console.warn('[Preload] socket.io-client not available, socket features disabled:', error.message);
+}
 
 let socket = null;
 
@@ -25,10 +48,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Socket.IO
   connectSocket: (url) => {
+    if (!ioClient) return false;
     if (socket) {
       socket.disconnect();
     }
-    socket = io(url, { transports: ['websocket'] });
+    socket = ioClient(url, { transports: ['websocket'] });
     return true;
   },
   onSocketEvent: (event, callback) => {
