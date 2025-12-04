@@ -203,6 +203,65 @@ socket.on('message', (data) => {
 });
 ```
 
+## 🔧 트러블슈팅
+
+### macOS에서 실시간 대화가 안 되는 경우
+
+Socket.IO 연결 문제일 수 있습니다. 다음 단계를 시도해보세요:
+
+1. **의존성 재설치**
+   ```bash
+   # node_modules 삭제 후 재설치
+   rm -rf node_modules
+   npm install
+   ```
+
+2. **백엔드 서버 확인**
+   ```bash
+   # 백엔드가 제대로 실행 중인지 확인
+   curl http://localhost:8000/health
+
+   # Socket.IO 엔드포인트 확인
+   curl http://localhost:8000/socket.io/
+   ```
+
+3. **개발자 도구로 디버깅**
+
+   .env 파일에서 디버그 모드 활성화:
+   ```bash
+   DEBUG_MODE=true
+   ```
+
+   개발자 도구(DevTools)의 Console 탭에서 다음 로그를 확인:
+   - `[Preload] socket.io-client loaded successfully` - 모듈 로딩 성공
+   - `[Preload Socket] ✅ 연결 성공!` - 서버 연결 성공
+   - `[Preload Socket] ❌ 연결 오류` - 연결 실패 시 에러 확인
+
+4. **방화벽 확인**
+
+   macOS 방화벽이 localhost 연결을 차단하지 않는지 확인:
+   ```
+   시스템 환경설정 > 보안 및 개인 정보 보호 > 방화벽
+   ```
+
+5. **포트 충돌 확인**
+   ```bash
+   # 8000번 포트가 이미 사용 중인지 확인
+   lsof -i :8000
+   ```
+
+### Windows에서는 되는데 macOS에서 안 되는 경우
+
+이번 업데이트로 다음 사항들이 개선되었습니다:
+- Socket.IO 클라이언트 모듈 로딩 경로 최적화
+- macOS용 WebSocket 연결 우선순위 조정
+- 상세한 연결 상태 로깅 추가
+
+문제가 계속되면 GitHub Issues에 다음 정보와 함께 제보해주세요:
+- macOS 버전
+- Node.js 버전 (`node --version`)
+- 개발자 도구 Console의 에러 로그
+
 ## 📝 라이선스
 
 MIT License

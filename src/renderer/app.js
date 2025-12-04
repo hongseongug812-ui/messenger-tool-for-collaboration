@@ -98,6 +98,9 @@ class WorkMessenger {
       participants: []
     };
 
+    // 채널 음소거 상태 저장
+    this.mutedChannels = new Set();
+
     // 화면 공유 상태
     this.screenShare = {
       isSharing: false,
@@ -162,7 +165,9 @@ class WorkMessenger {
       { name: '/unmute', description: '채널 알림 음소거 해제' },
       { name: '/invite', description: '사용자 초대' },
       { name: '/kick', description: '사용자 추방' },
-      { name: '/nick', description: '닉네임 변경' }
+      { name: '/nick', description: '닉네임 변경' },
+      { name: '/poll', description: '투표 만들기 (/poll 질문 | 보기1 | 보기2 ...)' },
+      { name: '/giphy', description: 'GIF 검색 후 첨부 (/giphy 검색어)' }
     ];
 
     // 인증 상태
@@ -248,7 +253,8 @@ class WorkMessenger {
     } else {
       this.config = {
         serverUrl: 'http://localhost:8000',
-        pushEnabled: true
+        pushEnabled: true,
+        giphyApiKey: ''
       };
     }
     this.apiBase = this.config?.serverUrl || '';
@@ -1675,22 +1681,37 @@ class WorkMessenger {
     // 현재 채널의 멤버 가져오기
     let members = this.currentChannel ? (this.channelMembers[this.currentChannel.id] || []) : [];
 
+    // 중복 제거 (id 기준)
+    const uniq = new Map();
+    members.forEach(m => {
+      if (!m) return;
+      if (m.id) {
+        if (!uniq.has(m.id)) uniq.set(m.id, m);
+      } else {
+        uniq.set(`anon_${uniq.size}`, m);
+      }
+    });
+    members = Array.from(uniq.values());
+
     // 현재 사용자 정보 가져오기
     const currentUser = this.auth?.currentUser || this.user;
     const currentUserId = currentUser?.id;
 
-    // 본인을 멤버 목록에 추가 (이미 있으면 제외하고 맨 위에 추가)
+    // 본인을 멤버 목록에 추가 (이미 있으면 덮어쓰고 맨 위에 둠)
     if (currentUserId) {
-      members = members.filter(m => m.id !== currentUserId);
-
       const selfMember = {
         id: currentUserId,
-        name: currentUser.name + ' (나)',
-        avatar: currentUser.avatar || currentUser.name[0],
+        name: `${currentUser.name} (me)`,
+        avatar: currentUser.avatar || currentUser.name?.[0] || 'U',
         status: this.user?.status || 'online'
       };
 
-      members = [selfMember, ...members];
+      const existingIdx = members.findIndex(m => m.id === currentUserId);
+      if (existingIdx >= 0) {
+        members[existingIdx] = { ...members[existingIdx], ...selfMember };
+      } else {
+        members = [selfMember, ...members];
+      }
     }
 
     // 멤버가 없는 경우
@@ -2026,6 +2047,48 @@ class WorkMessenger {
         filesHTML += '</div>';
       }
 
+      // special content (poll / gif)
+      let specialHTML = '';
+
+      if (msg.type === 'poll' && msg.poll) {
+        const counts = this.getPollCounts(msg.poll);
+        const totalVotes = Object.values(counts).reduce((a, b) => a + b, 0);
+        const optionsHTML = msg.poll.options
+          .map(opt => {
+            const count = counts[opt.id] || 0;
+            const percent = totalVotes > 0 ? Math.round((count / totalVotes) * 100) : 0;
+            return `
+              <button class="poll-option" data-option-id="${opt.id}">
+                <div class="poll-option-label">${opt.label}</div>
+                <div class="poll-option-bar">
+                  <div class="poll-option-fill" style="width:${percent}%"></div>
+                </div>
+                <div class="poll-option-meta">${count}표 · ${percent}%</div>
+              </button>
+            `;
+          })
+          .join('');
+
+        specialHTML += `
+          <div class="poll-card">
+            <div class="poll-question">${this.formatMessage(msg.poll.question)}</div>
+            <div class="poll-options">
+              ${optionsHTML}
+            </div>
+            <div class="poll-total">${totalVotes}표 참여</div>
+          </div>
+        `;
+      }
+
+      if (msg.type === 'gif' && msg.gifUrl) {
+        specialHTML += `
+          <div class="gif-bubble">
+            <img src="${msg.gifUrl}" alt="${msg.gifQuery || 'GIF'}">
+            ${msg.gifQuery ? `<div class="gif-caption">/giphy ${msg.gifQuery}</div>` : ''}
+          </div>
+        `;
+      }
+
       // 스레드 카운트 HTML 생성
       const threadCount = this.getThreadCount(msg.id, channelId);
       let threadCountHTML = '';
@@ -2049,6 +2112,7 @@ class WorkMessenger {
             <span class="message-time">${msg.time}</span>
           </div>
           ${msg.content ? `<div class="message-bubble">${this.formatMessage(msg.content)}</div>` : ''}
+          ${specialHTML}
           ${filesHTML}
           ${this.renderMessageReactions(msg.id, channelId)}
           ${threadCountHTML}
@@ -2071,6 +2135,17 @@ class WorkMessenger {
           this.toggleReaction(messageId, channelId, emoji);
         });
       });
+
+      if (msg.type === 'poll' && msg.poll) {
+        const pollButtons = msgEl.querySelectorAll('.poll-option');
+        pollButtons.forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const optionId = btn.dataset.optionId;
+            this.handlePollVote(channelId, msg.id, optionId);
+          });
+        });
+      }
 
     return msgEl;
   }
@@ -2322,6 +2397,15 @@ class WorkMessenger {
     const content = input.value.trim();
 
     if ((!content && this.attachedFiles.length === 0) || !this.currentChannel) return;
+
+    // 슬래시 커맨드 처리
+    if (content.startsWith('/')) {
+      const handled = await this.handleSlashCommand(content);
+      if (handled) {
+        this.resetInput();
+        return;
+      }
+    }
     const socketConnected = window.electronAPI?.isSocketConnected?.();
 
     if (socketConnected) {
@@ -2330,6 +2414,7 @@ class WorkMessenger {
         sender: this.user,
         content,
         sent: true,
+        time: this.getCurrentTimeString(),
         files: this.attachedFiles.map(f => ({
           id: f.id,
           name: f.name,
@@ -2340,11 +2425,7 @@ class WorkMessenger {
       };
 
       // 로컬 즉시 반영
-      if (!this.messages[this.currentChannel.id]) {
-        this.messages[this.currentChannel.id] = [];
-      }
-      this.messages[this.currentChannel.id].push(localMessage);
-      this.appendMessage(localMessage, this.currentChannel.id);
+      this.addLocalMessage(this.currentChannel.id, localMessage);
 
       // Socket.IO를 통해 서버로 전송 (서버가 DB 저장 후 다른 클라이언트에 브로드캐스트)
       window.electronAPI.emitSocketEvent('message', {
@@ -2370,6 +2451,7 @@ class WorkMessenger {
       sender: this.user,
       content,
       sent: true,
+      time: this.getCurrentTimeString(),
       files: this.attachedFiles.map(f => ({
         id: f.id,
         name: f.name,
@@ -2405,16 +2487,228 @@ class WorkMessenger {
       }
     }
 
-    if (!this.messages[this.currentChannel.id]) {
-      this.messages[this.currentChannel.id] = [];
-    }
-    const exists = this.messages[this.currentChannel.id].some(m => m.id === finalMessage.id);
-    if (!exists) {
-      this.messages[this.currentChannel.id].push(finalMessage);
-      this.appendMessage(finalMessage, this.currentChannel.id);
-    }
+    this.addLocalMessage(this.currentChannel.id, finalMessage);
 
     this.resetInput();
+  }
+
+  addLocalMessage(channelId, msg) {
+    if (!this.messages[channelId]) {
+      this.messages[channelId] = [];
+    }
+    const exists = this.messages[channelId].some(m => m.id === msg.id);
+    if (!exists) {
+      this.messages[channelId].push(msg);
+    }
+    this.appendMessage(msg, channelId);
+  }
+
+  getCurrentTimeString() {
+    return new Date().toLocaleTimeString('ko-KR', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+  }
+
+  async handleSlashCommand(raw) {
+    const command = raw.trim().split(' ')[0];
+    const args = raw.trim().slice(command.length).trim();
+
+    switch (command) {
+      case '/poll': {
+        const parsed = this.parsePollArgs(args);
+        if (!parsed) {
+          alert('예시: /poll 점심 뭐 먹을까요? | 한식 | 중식 | 분식');
+          return true;
+        }
+        const { question, options } = parsed;
+        const pollMessage = {
+          id: Date.now(),
+          sender: this.user,
+          type: 'poll',
+          poll: {
+            question,
+            options: options.map((label, idx) => ({
+              id: `opt_${idx}`,
+              label,
+              votes: 0
+            })),
+            votes: {}
+          },
+          sent: true,
+          time: this.getCurrentTimeString()
+        };
+        this.addLocalMessage(this.currentChannel.id, pollMessage);
+        if (window.electronAPI?.emitSocketEvent) {
+          window.electronAPI.emitSocketEvent('message', {
+            channelId: this.currentChannel.id,
+            message: pollMessage
+          });
+        }
+        return true;
+      }
+
+      case '/giphy': {
+        const query = args || (await this.showInputDialog('검색할 GIF 키워드:', ''));
+        if (!query) return true;
+
+        const apiKey = this.config?.giphyApiKey || '';
+        if (!apiKey) {
+          alert('GIPHY_API_KEY가 설정되어 있지 않습니다. .env에 GIPHY_API_KEY를 추가하세요.');
+          return true;
+        }
+
+        try {
+          const url = `https://api.giphy.com/v1/gifs/search?api_key=${apiKey}&q=${encodeURIComponent(query)}&limit=1&rating=g`;
+          const res = await fetch(url);
+          const data = await res.json();
+          const gifUrl = data?.data?.[0]?.images?.downsized_medium?.url;
+          if (!gifUrl) {
+            alert('GIF를 찾지 못했습니다.');
+            return true;
+          }
+
+          const gifMessage = {
+            id: Date.now(),
+            sender: this.user,
+            type: 'gif',
+            gifUrl,
+            gifQuery: query,
+            content: `/giphy ${query}`,
+            sent: true,
+            time: this.getCurrentTimeString()
+          };
+          this.addLocalMessage(this.currentChannel.id, gifMessage);
+          if (window.electronAPI?.emitSocketEvent) {
+            window.electronAPI.emitSocketEvent('message', {
+              channelId: this.currentChannel.id,
+              message: gifMessage
+            });
+          }
+        } catch (error) {
+          console.error('GIPHY 검색 실패:', error);
+          alert('GIF 검색에 실패했습니다.');
+        }
+        return true;
+      }
+
+      case '/help': {
+        alert(this.slashCommands.map(c => `${c.name} - ${c.description}`).join('\n'));
+        return true;
+      }
+
+      case '/clear': {
+        if (this.currentChannel) {
+          this.messages[this.currentChannel.id] = [];
+          this.renderMessages(this.currentChannel.id);
+        }
+        return true;
+      }
+
+      case '/status': {
+        const statusMsg = args || (await this.showInputDialog('상태 메시지 입력:', this.profile.statusMessage || ''));
+        if (statusMsg !== null) {
+          this.profile.statusMessage = statusMsg;
+          alert(`상태 메시지: ${statusMsg}`);
+        }
+        return true;
+      }
+
+      case '/away': {
+        this.user.status = 'away';
+        this.renderMembers();
+        return true;
+      }
+
+      case '/dnd': {
+        this.dndMode = !this.dndMode;
+        alert(`방해금지 모드: ${this.dndMode ? 'ON' : 'OFF'}`);
+        return true;
+      }
+
+      case '/mute': {
+        if (this.currentChannel) {
+          this.mutedChannels.add(this.currentChannel.id);
+          alert('이 채널 알림 음소거');
+        }
+        return true;
+      }
+
+      case '/unmute': {
+        if (this.currentChannel) {
+          this.mutedChannels.delete(this.currentChannel.id);
+          alert('이 채널 알림 음소거 해제');
+        }
+        return true;
+      }
+
+      case '/nick': {
+        const newNick = args || (await this.showInputDialog('새 닉네임:', this.user.name));
+        if (newNick) {
+          this.user.name = newNick;
+          this.renderMembers();
+        }
+        return true;
+      }
+
+      case '/invite':
+      case '/kick': {
+        alert('이 명령어는 아직 구현되지 않았습니다. (서버 연동 필요)');
+        return true;
+      }
+
+      default:
+        return false;
+    }
+  }
+
+  parsePollArgs(args) {
+    if (!args) return null;
+    const parts = args.split('|').map(p => p.trim()).filter(Boolean);
+    if (parts.length < 3) {
+      return null; // 질문 + 최소 2개 보기 필요
+    }
+    const question = parts.shift();
+    return { question, options: parts };
+  }
+
+  handlePollVote(channelId, messageId, optionId) {
+    const userId = this.auth?.currentUser?.id || this.user?.id;
+    if (!userId) return;
+
+    const messages = this.messages[channelId] || [];
+    const msg = messages.find(m => m.id === messageId);
+    if (!msg || msg.type !== 'poll') return;
+
+    msg.poll = msg.poll || { options: [], votes: {} };
+    msg.poll.votes = msg.poll.votes || {};
+    msg.poll.votes[userId] = optionId;
+
+    this.renderMessages(channelId);
+
+    if (window.electronAPI?.emitSocketEvent) {
+      window.electronAPI.emitSocketEvent('poll_vote', {
+        channelId,
+        messageId,
+        optionId,
+        userId
+      });
+    }
+  }
+
+  getPollCounts(poll) {
+    const counts = {};
+    if (!poll?.options) return counts;
+    poll.options.forEach(opt => {
+      counts[opt.id] = 0;
+    });
+    if (poll.votes) {
+      Object.values(poll.votes).forEach(optId => {
+        if (counts[optId] !== undefined) counts[optId] += 1;
+      });
+    }
+    return counts;
   }
 
   resetInput() {
@@ -2443,6 +2737,19 @@ class WorkMessenger {
 
     if (!window.electronAPI || !this.apiBase) {
       console.log('[connectSocket] 조기 반환: electronAPI 또는 apiBase 누락');
+      const statusText = document.getElementById('connection-status');
+      if (statusText) {
+        statusText.innerHTML = '<span class="status-dot disconnected"></span> 서버 설정 필요';
+      }
+      return;
+    }
+
+    if (!window.electronAPI.connectSocket) {
+      console.error('[connectSocket] connectSocket 함수를 사용할 수 없습니다!');
+      const statusText = document.getElementById('connection-status');
+      if (statusText) {
+        statusText.innerHTML = '<span class="status-dot disconnected"></span> Socket.IO 모듈 오류';
+      }
       return;
     }
 
@@ -2451,8 +2758,17 @@ class WorkMessenger {
       const connectResult = window.electronAPI.connectSocket(this.apiBase);
       console.log('[connectSocket] connectSocket 결과:', connectResult);
 
+      if (!connectResult) {
+        console.error('[connectSocket] Socket.IO 연결 초기화 실패');
+        const statusText = document.getElementById('connection-status');
+        if (statusText) {
+          statusText.innerHTML = '<span class="status-dot disconnected"></span> 연결 초기화 실패';
+        }
+        return;
+      }
+
       window.electronAPI.onSocketEvent('connect', () => {
-        console.log('서버 연결됨');
+        console.log('✅ 서버 연결 성공!');
         const statusDot = document.querySelector('.status-dot');
         const statusText = document.getElementById('connection-status');
         statusDot?.classList.add('connected');
@@ -2460,7 +2776,10 @@ class WorkMessenger {
         if (statusText) {
           statusText.innerHTML = '<span class="status-dot connected"></span> 연결됨';
         }
+
+        // 현재 채널에 자동 조인
         if (this.currentChannel) {
+          console.log('[connectSocket] 현재 채널에 조인:', this.currentChannel.id);
           window.electronAPI.emitSocketEvent('join', {
             channelId: this.currentChannel.id,
             userId: this.auth?.currentUser?.id || this.user?.id
@@ -2468,27 +2787,34 @@ class WorkMessenger {
         }
 
         // 연결 시 아직 조인하지 못한 채널 재조인
-        this.pendingJoinChannels.forEach(channelId => {
-          window.electronAPI.emitSocketEvent('join', {
-            channelId,
-            userId: this.auth?.currentUser?.id || this.user?.id
+        if (this.pendingJoinChannels.size > 0) {
+          console.log('[connectSocket] 보류된 채널 조인:', Array.from(this.pendingJoinChannels));
+          this.pendingJoinChannels.forEach(channelId => {
+            window.electronAPI.emitSocketEvent('join', {
+              channelId,
+              userId: this.auth?.currentUser?.id || this.user?.id
+            });
           });
-          this.pendingJoinChannels.delete(channelId);
-        });
+          this.pendingJoinChannels.clear();
+        }
       });
 
       window.electronAPI.onSocketEvent('connect_error', (err) => {
-        console.error('소켓 연결 오류:', err);
+        console.error('❌ 소켓 연결 오류:', err);
+        const statusText = document.getElementById('connection-status');
+        if (statusText) {
+          statusText.innerHTML = '<span class="status-dot disconnected"></span> 연결 오류';
+        }
       });
 
-      window.electronAPI.onSocketEvent('disconnect', () => {
-        console.log('서버 연결 끊김');
+      window.electronAPI.onSocketEvent('disconnect', (reason) => {
+        console.log('🔌 서버 연결 끊김:', reason);
         const statusDot = document.querySelector('.status-dot');
         const statusText = document.getElementById('connection-status');
         statusDot?.classList.remove('connected');
         statusDot?.classList.add('disconnected');
         if (statusText) {
-          statusText.innerHTML = '<span class="status-dot disconnected"></span> 연결 안됨';
+          statusText.innerHTML = '<span class="status-dot disconnected"></span> 연결 끊김';
         }
       });
 
@@ -2507,8 +2833,26 @@ class WorkMessenger {
       window.electronAPI.onSocketEvent('user_status_changed', (data) => {
         this.handleUserStatusChanged(data);
       });
+
+      window.electronAPI.onSocketEvent('poll_vote', (data) => {
+        this.applyPollVote(data);
+      });
     } catch (error) {
       console.error('소켓 연결 실패:', error);
+    }
+  }
+
+  applyPollVote(data) {
+    const { channelId, messageId, optionId, userId } = data || {};
+    if (!channelId || !messageId || !optionId || !userId) return;
+    const messages = this.messages[channelId] || [];
+    const msg = messages.find(m => m.id === messageId);
+    if (!msg || msg.type !== 'poll') return;
+    msg.poll = msg.poll || { options: [], votes: {} };
+    msg.poll.votes = msg.poll.votes || {};
+    msg.poll.votes[userId] = optionId;
+    if (this.currentChannel?.id === channelId) {
+      this.renderMessages(channelId);
     }
   }
 

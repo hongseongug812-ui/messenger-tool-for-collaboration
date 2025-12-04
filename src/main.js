@@ -48,7 +48,8 @@ const config = {
   appEnv: process.env.APP_ENV || 'development',
   debugMode: process.env.DEBUG_MODE === 'true',
   pushEnabled: process.env.PUSH_ENABLED !== 'false',
-  pushSound: process.env.PUSH_SOUND !== 'false'
+  pushSound: process.env.PUSH_SOUND !== 'false',
+  giphyApiKey: process.env.GIPHY_API_KEY || ''
 };
 
 function createWindow() {
@@ -65,6 +66,7 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: false,
       preload: path.join(__dirname, 'preload.js')
     },
     icon: path.join(__dirname, '../assets/icon.png'),
@@ -160,7 +162,8 @@ function registerIpcHandlers() {
     return {
       serverUrl: config.serverUrl,
       socketPort: config.socketPort,
-      pushEnabled: config.pushEnabled
+      pushEnabled: config.pushEnabled,
+      giphyApiKey: config.giphyApiKey
     };
   });
 
