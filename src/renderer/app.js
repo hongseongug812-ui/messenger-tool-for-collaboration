@@ -156,18 +156,18 @@ class WorkMessenger {
 
     // 슬래시 커맨드 데이터
     this.slashCommands = [
-      { name: '/help', description: '도움말 표시' },
-      { name: '/clear', description: '화면 지우기' },
-      { name: '/status', description: '상태 메시지 설정' },
-      { name: '/away', description: '자리비움 상태로 변경' },
-      { name: '/dnd', description: '방해금지 모드 토글' },
-      { name: '/mute', description: '채널 알림 음소거' },
-      { name: '/unmute', description: '채널 알림 음소거 해제' },
-      { name: '/invite', description: '사용자 초대' },
-      { name: '/kick', description: '사용자 추방' },
-      { name: '/nick', description: '닉네임 변경' },
-      { name: '/poll', description: '투표 만들기 (/poll 질문 | 보기1 | 보기2 ...)' },
-      { name: '/giphy', description: 'GIF 검색 후 첨부 (/giphy 검색어)' }
+      { name: '/help', description: '도움말 표시', icon: '❓' },
+      { name: '/clear', description: '화면 지우기', icon: '🧹' },
+      { name: '/status', description: '상태 메시지 설정', icon: '💭' },
+      { name: '/away', description: '자리비움 상태로 변경', icon: '🌙' },
+      { name: '/dnd', description: '방해금지 모드 토글', icon: '🔕' },
+      { name: '/mute', description: '채널 알림 음소거', icon: '🔇' },
+      { name: '/unmute', description: '채널 알림 음소거 해제', icon: '🔊' },
+      { name: '/invite', description: '사용자 초대', icon: '✉️' },
+      { name: '/kick', description: '사용자 추방', icon: '👢' },
+      { name: '/nick', description: '닉네임 변경', icon: '✏️' },
+      { name: '/poll', description: '투표 만들기 (/poll 질문 | 보기1 | 보기2 ...)', icon: '📊' },
+      { name: '/giphy', description: 'GIF 검색 후 첨부 (/giphy 검색어)', icon: '🎬' }
     ];
 
     // 인증 상태
@@ -227,6 +227,9 @@ class WorkMessenger {
 
     // UI 이벤트 바인딩
     this.bindEvents();
+
+    // 검색 기능 초기화
+    this.initSearch();
 
     // 테마 버튼 초기화
     this.updateThemeButton();
@@ -1725,16 +1728,31 @@ class WorkMessenger {
       const statusClass = member.status === 'online' ? 'online' : member.status === 'away' ? 'away' : 'offline';
       const statusText = member.status === 'online' ? '온라인' : member.status === 'away' ? '자리비움' : '오프라인';
 
+      // 닉네임이 있으면 닉네임 표시, 없으면 기본 이름 표시
+      const displayName = this.getDisplayName(member.id) || member.name;
+
       return `
-        <div class="member-item" title="${member.name}">
+        <div class="member-item" title="${displayName}" data-user-id="${member.id}">
           <div class="member-item-avatar ${statusClass}">${member.avatar}</div>
           <div class="member-item-info">
-            <div class="member-item-name">${member.name}</div>
+            <div class="member-item-name">${displayName}</div>
             <div class="member-item-status">${statusText}</div>
           </div>
         </div>
       `;
     }).join('');
+
+    // 멤버 아이템에 우클릭 이벤트 추가
+    const memberItems = list.querySelectorAll('.member-item');
+    memberItems.forEach(item => {
+      item.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        const userId = item.dataset.userId;
+        if (userId) {
+          this.showMemberProfile(userId);
+        }
+      });
+    });
 
     // 멤버 검색
     const searchInput = document.getElementById('members-search-input');
@@ -1976,6 +1994,22 @@ class WorkMessenger {
   // 메시지 관리
   // ========================================
 
+  // 사용자의 표시 이름 가져오기 (닉네임이 있으면 닉네임, 없으면 이름)
+  getDisplayName(userId) {
+    if (!this.currentServer || !this.currentServer.members) {
+      return null;
+    }
+
+    const members = this.currentServer.members || [];
+    const member = members.find(m => m.id === userId);
+
+    if (member && member.nickname) {
+      return member.nickname;
+    }
+
+    return null; // 닉네임이 없으면 null 반환 (기본 이름 사용)
+  }
+
   // 메시지 요소 생성 (재사용 가능한 함수)
   createMessageElement(msg, channelId, isPinned = false) {
     const msgEl = document.createElement('div');
@@ -2104,11 +2138,14 @@ class WorkMessenger {
         `;
       }
 
+      // 닉네임이 있으면 닉네임 표시, 없으면 기본 이름 표시
+      const displayName = this.getDisplayName(msg.sender.id) || msg.sender.name;
+
       msgEl.innerHTML = `
         <div class="avatar">${msg.sender.avatar}</div>
         <div class="message-content">
           <div class="message-header">
-            <span class="message-sender">${msg.sender.name}</span>
+            <span class="message-sender">${displayName}</span>
             <span class="message-time">${msg.time}</span>
           </div>
           ${msg.content ? `<div class="message-bubble">${this.formatMessage(msg.content)}</div>` : ''}
@@ -2594,7 +2631,7 @@ class WorkMessenger {
       }
 
       case '/help': {
-        alert(this.slashCommands.map(c => `${c.name} - ${c.description}`).join('\n'));
+        this.showHelpModal();
         return true;
       }
 
@@ -2646,8 +2683,41 @@ class WorkMessenger {
       case '/nick': {
         const newNick = args || (await this.showInputDialog('새 닉네임:', this.user.name));
         if (newNick) {
-          this.user.name = newNick;
-          this.renderMembers();
+          try {
+            if (!this.currentServer) {
+              throw new Error('서버를 선택해주세요');
+            }
+
+            const response = await fetch(`${this.apiBase}/servers/${this.currentServer.id}/members/me/nickname`, {
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${this.authToken}`
+              },
+              body: JSON.stringify({ nickname: newNick.trim() })
+            });
+
+            if (!response.ok) {
+              const error = await response.json();
+              throw new Error(error.detail || '닉네임 변경 실패');
+            }
+
+            const updatedMember = await response.json();
+
+            // 현재 서버의 멤버 목록에서 자신의 정보 업데이트
+            if (this.currentServer && this.currentServer.members) {
+              const memberIndex = this.currentServer.members.findIndex(m => m.id === this.user.id);
+              if (memberIndex !== -1) {
+                this.currentServer.members[memberIndex].nickname = updatedMember.nickname;
+              }
+            }
+
+            this.renderMembers();
+            this.showToast(`닉네임이 "${newNick}"(으)로 변경되었습니다.`);
+          } catch (error) {
+            console.error('닉네임 변경 오류:', error);
+            this.showToast(`닉네임 변경 실패: ${error.message}`, 'error');
+          }
         }
         return true;
       }
@@ -2718,6 +2788,103 @@ class WorkMessenger {
     this.attachedFiles = [];
     this.renderAttachedFiles();
     document.getElementById('send-btn').disabled = true;
+
+    // 입력창에 포커스 다시 설정
+    input.focus();
+  }
+
+  showHelpModal() {
+    const modal = document.getElementById('help-modal');
+    const commandsList = document.getElementById('help-commands-list');
+
+    // 명령어 목록 생성
+    commandsList.innerHTML = this.slashCommands.map(cmd => `
+      <div class="help-command-item">
+        <div class="help-command-icon">${cmd.icon}</div>
+        <div class="help-command-content">
+          <div class="help-command-name">${cmd.name}</div>
+          <div class="help-command-desc">${cmd.description}</div>
+        </div>
+      </div>
+    `).join('');
+
+    // 모달 표시
+    modal.style.display = 'flex';
+
+    // ESC 키로 닫기
+    const closeHandler = (e) => {
+      if (e.key === 'Escape') {
+        modal.style.display = 'none';
+        document.removeEventListener('keydown', closeHandler);
+      }
+    };
+    document.addEventListener('keydown', closeHandler);
+
+    // 오버레이 클릭으로 닫기
+    modal.onclick = (e) => {
+      if (e.target === modal) {
+        modal.style.display = 'none';
+      }
+    };
+  }
+
+  showMemberProfile(userId) {
+    const modal = document.getElementById('member-profile-modal');
+
+    // 현재 서버의 멤버 정보 가져오기
+    if (!this.currentServer || !this.currentServer.members) {
+      console.error('서버 정보를 찾을 수 없습니다.');
+      return;
+    }
+
+    const members = this.currentServer.members || [];
+    const member = members.find(m => m.id === userId);
+
+    if (!member) {
+      console.error('멤버를 찾을 수 없습니다.');
+      return;
+    }
+
+    // 프로필 정보 설정
+    document.getElementById('profile-avatar').textContent = member.avatar;
+    document.getElementById('profile-name').textContent = member.name;
+    document.getElementById('profile-nickname').textContent = member.nickname || '';
+
+    // 역할 한글 변환
+    const roleMap = {
+      'owner': '소유자',
+      'admin': '관리자',
+      'moderator': '모더레이터',
+      'member': '멤버'
+    };
+    document.getElementById('profile-role').textContent = roleMap[member.role] || member.role;
+
+    // 상태 한글 변환
+    const statusMap = {
+      'online': '온라인',
+      'away': '자리비움',
+      'offline': '오프라인'
+    };
+    document.getElementById('profile-status').textContent = statusMap[member.status] || member.status;
+
+    // 모달 표시
+    modal.style.display = 'flex';
+
+    // ESC 키로 닫기
+    const closeHandler = (e) => {
+      if (e.key === 'Escape') {
+        modal.style.display = 'none';
+        document.removeEventListener('keydown', closeHandler);
+      }
+    };
+    document.addEventListener('keydown', closeHandler);
+
+    // 오버레이 클릭으로 닫기
+    modal.onclick = (e) => {
+      if (e.target === modal) {
+        modal.style.display = 'none';
+      }
+    };
   }
 
   showNotification(title, body) {
@@ -5558,6 +5725,230 @@ class WorkMessenger {
 
     // 입력 초기화
     e.target.value = '';
+  }
+
+  // =========================
+  // 검색 기능
+  // =========================
+
+  initSearch() {
+    const searchModal = document.getElementById('search-modal');
+    const searchInput = document.getElementById('search-input');
+    const searchResults = document.getElementById('search-results');
+    const closeSearch = document.getElementById('close-search');
+    const filterBtns = document.querySelectorAll('.filter-btn');
+
+    // Ctrl+K 단축키로 검색 열기
+    document.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        this.openSearch();
+      }
+      // ESC로 닫기
+      if (e.key === 'Escape' && searchModal.style.display !== 'none') {
+        this.closeSearch();
+      }
+    });
+
+    // 닫기 버튼
+    closeSearch?.addEventListener('click', () => this.closeSearch());
+
+    // 모달 오버레이 클릭 시 닫기
+    searchModal?.addEventListener('click', (e) => {
+      if (e.target === searchModal) {
+        this.closeSearch();
+      }
+    });
+
+    // 검색 입력
+    let searchTimeout;
+    searchInput?.addEventListener('input', (e) => {
+      clearTimeout(searchTimeout);
+      const query = e.target.value.trim();
+
+      if (query.length < 2) {
+        searchResults.innerHTML = '<div class="search-empty"><p>검색어를 입력하세요 (최소 2글자)</p></div>';
+        return;
+      }
+
+      searchResults.innerHTML = '<div class="search-empty"><p>검색 중...</p></div>';
+
+      searchTimeout = setTimeout(() => {
+        this.performSearch(query);
+      }, 300);
+    });
+
+    // 필터 버튼
+    filterBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        filterBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+
+        const query = searchInput?.value.trim();
+        if (query && query.length >= 2) {
+          this.performSearch(query);
+        }
+      });
+    });
+  }
+
+  openSearch() {
+    const searchModal = document.getElementById('search-modal');
+    const searchInput = document.getElementById('search-input');
+
+    if (searchModal) {
+      searchModal.style.display = 'flex';
+      setTimeout(() => searchInput?.focus(), 100);
+    }
+  }
+
+  closeSearch() {
+    const searchModal = document.getElementById('search-modal');
+    const searchInput = document.getElementById('search-input');
+    const searchResults = document.getElementById('search-results');
+
+    if (searchModal) {
+      searchModal.style.display = 'none';
+      if (searchInput) searchInput.value = '';
+      if (searchResults) {
+        searchResults.innerHTML = '<div class="search-empty"><p>검색어를 입력하세요 (최소 2글자)</p></div>';
+      }
+    }
+  }
+
+  async performSearch(query) {
+    const activeFilter = document.querySelector('.filter-btn.active');
+    const type = activeFilter?.dataset.filter || 'all';
+    const serverId = this.currentServer?.id;
+
+    try {
+      const url = serverId
+        ? `${this.apiBase}/servers/${serverId}/search?q=${encodeURIComponent(query)}&type=${type}`
+        : `${this.apiBase}/search?q=${encodeURIComponent(query)}&type=${type}`;
+
+      const response = await this.apiRequest(url);
+      this.renderSearchResults(response, query);
+    } catch (error) {
+      console.error('검색 실패:', error);
+      const searchResults = document.getElementById('search-results');
+      if (searchResults) {
+        searchResults.innerHTML = '<div class="search-empty"><p>검색에 실패했습니다.</p></div>';
+      }
+    }
+  }
+
+  renderSearchResults(results, query) {
+    const searchResults = document.getElementById('search-results');
+    if (!searchResults) return;
+
+    const { users = [], messages = [] } = results;
+
+    if (users.length === 0 && messages.length === 0) {
+      searchResults.innerHTML = '<div class="search-empty"><p>검색 결과가 없습니다.</p></div>';
+      return;
+    }
+
+    let html = '';
+
+    // 사용자 결과
+    if (users.length > 0) {
+      html += '<div class="search-section">';
+      html += '<div class="search-section-title">사용자</div>';
+      users.forEach(user => {
+        const highlightedName = this.highlightText(user.name, query);
+        const highlightedEmail = this.highlightText(user.email, query);
+
+        html += `
+          <div class="search-item" data-type="user" data-id="${user.id}">
+            <div class="search-item-avatar">${user.avatar}</div>
+            <div class="search-item-info">
+              <div class="search-item-title">${highlightedName}</div>
+              <div class="search-item-subtitle">${highlightedEmail}</div>
+            </div>
+            ${user.role ? `<span class="role-badge ${user.role}">${user.role}</span>` : ''}
+          </div>
+        `;
+      });
+      html += '</div>';
+    }
+
+    // 메시지 결과
+    if (messages.length > 0) {
+      html += '<div class="search-section">';
+      html += '<div class="search-section-title">메시지</div>';
+      messages.forEach(msg => {
+        const highlightedContent = this.highlightText(msg.content, query);
+        const timestamp = new Date(msg.timestamp).toLocaleString('ko-KR', {
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+
+        html += `
+          <div class="search-item" data-type="message" data-channel-id="${msg.channel_id}" data-id="${msg.id}">
+            <div class="search-item-avatar">${msg.sender.avatar}</div>
+            <div class="search-item-info">
+              <div class="search-item-title">${msg.sender.name}</div>
+              <div class="search-item-subtitle">${highlightedContent}</div>
+            </div>
+            <span class="search-item-badge">${timestamp}</span>
+          </div>
+        `;
+      });
+      html += '</div>';
+    }
+
+    searchResults.innerHTML = html;
+
+    // 검색 결과 클릭 이벤트
+    searchResults.querySelectorAll('.search-item').forEach(item => {
+      item.addEventListener('click', () => this.handleSearchItemClick(item));
+    });
+  }
+
+  highlightText(text, query) {
+    if (!text || !query) return text;
+
+    const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    return text.replace(regex, '<span class="highlight">$1</span>');
+  }
+
+  handleSearchItemClick(item) {
+    const type = item.dataset.type;
+
+    if (type === 'user') {
+      const userId = item.dataset.id;
+      console.log('사용자 클릭:', userId);
+      // TODO: 사용자 프로필 표시 또는 DM 열기
+      this.closeSearch();
+    } else if (type === 'message') {
+      const channelId = item.dataset.channelId;
+      const messageId = item.dataset.id;
+      console.log('메시지 클릭:', channelId, messageId);
+
+      // 해당 채널로 이동
+      const server = this.servers.find(s =>
+        s.categories.some(cat =>
+          cat.channels.some(ch => ch.id === channelId)
+        )
+      );
+
+      if (server) {
+        const category = server.categories.find(cat =>
+          cat.channels.some(ch => ch.id === channelId)
+        );
+        const channel = category?.channels.find(ch => ch.id === channelId);
+
+        if (channel) {
+          this.selectServer(server);
+          this.selectChannel(channel);
+          this.closeSearch();
+
+          // TODO: 해당 메시지로 스크롤
+        }
+      }
+    }
   }
 }
 

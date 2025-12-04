@@ -2,6 +2,8 @@ import os
 import uuid
 import mimetypes
 import aiofiles
+import base64
+import re
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional
@@ -15,6 +17,9 @@ from jose import JWTError, jwt
 from motor.motor_asyncio import AsyncIOMotorClient
 from passlib.context import CryptContext
 from pydantic import BaseModel, Field, EmailStr
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 
 def _get_list_env(key: str, default: List[str]) -> List[str]:
@@ -28,12 +33,110 @@ def _now():
   return datetime.now(timezone.utc)
 
 
+# 암호화/복호화 함수
+def encrypt_text(text: str) -> str:
+  """텍스트를 암호화하여 base64 문자열로 반환"""
+  if not text:
+    return text
+  encrypted = fernet.encrypt(text.encode())
+  return base64.urlsafe_b64encode(encrypted).decode()
+
+
+def decrypt_text(encrypted_text: str) -> str:
+  """암호화된 base64 문자열을 복호화"""
+  if not encrypted_text:
+    return encrypted_text
+  try:
+    encrypted = base64.urlsafe_b64decode(encrypted_text.encode())
+    decrypted = fernet.decrypt(encrypted)
+    return decrypted.decode()
+  except Exception as e:
+    print(f"[decrypt_text] 복호화 실패: {e}")
+    return encrypted_text  # 복호화 실패 시 원본 반환
+
+
+def extract_mentions(content: str) -> List[str]:
+  """메시지에서 @username 형식의 멘션 추출"""
+  return re.findall(r'@(\w+)', content)
+
+
+async def create_notification(user_id: str, notif_type: str, message_id: str, channel_id: str, content: str, trigger: str):
+  """알림 생성 및 저장"""
+  notification = {
+    "_id": f"notif_{uuid.uuid4().hex[:12]}",
+    "user_id": user_id,
+    "type": notif_type,
+    "message_id": message_id,
+    "channel_id": channel_id,
+    "content": content[:100],  # 메시지 내용 일부만 저장
+    "trigger": trigger,
+    "read": False,
+    "created_at": _now()
+  }
+  await notifications_col.insert_one(notification)
+  return notification["_id"]
+
+
+async def process_mentions_and_keywords(message_id: str, channel_id: str, content: str, sender_id: str):
+  """멘션 및 키워드 알림 처리"""
+  # 멘션 처리
+  mentions = extract_mentions(content)
+  for username in mentions:
+    # 멘션된 사용자 찾기
+    user_doc = await users_col.find_one({"username": username})
+    if user_doc and user_doc["_id"] != sender_id:  # 자기 자신은 제외
+      await create_notification(
+        user_id=user_doc["_id"],
+        notif_type="mention",
+        message_id=message_id,
+        channel_id=channel_id,
+        content=content,
+        trigger=f"@{username}"
+      )
+
+  # 키워드 알림 처리
+  users_cursor = users_col.find({"notification_keywords": {"$exists": True, "$ne": []}})
+  async for user_doc in users_cursor:
+    if user_doc["_id"] == sender_id:  # 자기 메시지는 제외
+      continue
+    keywords = user_doc.get("notification_keywords", [])
+    for keyword in keywords:
+      if keyword.lower() in content.lower():
+        await create_notification(
+          user_id=user_doc["_id"],
+          notif_type="keyword",
+          message_id=message_id,
+          channel_id=channel_id,
+          content=content,
+          trigger=keyword
+        )
+        break  # 사용자당 하나의 키워드 알림만
+
+
 # 환경 변수
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 MONGO_DB = os.getenv("MONGO_DB", "work_messenger")
 JWT_SECRET = os.getenv("JWT_SECRET", "change-me-in-production")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = 24 * 7  # 7일
+
+# 암호화 설정
+ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", "default-encryption-key-change-in-production-32bytes")
+# 암호화 키를 32바이트로 맞추기
+if len(ENCRYPTION_KEY.encode()) < 32:
+    ENCRYPTION_KEY = ENCRYPTION_KEY.ljust(32, '0')
+elif len(ENCRYPTION_KEY.encode()) > 32:
+    ENCRYPTION_KEY = ENCRYPTION_KEY[:32]
+
+# Fernet 암호화 객체 생성
+kdf = PBKDF2HMAC(
+    algorithm=hashes.SHA256(),
+    length=32,
+    salt=b'work_messenger_salt',  # 프로덕션에서는 랜덤 salt 사용
+    iterations=100000,
+)
+encryption_key = base64.urlsafe_b64encode(kdf.derive(ENCRYPTION_KEY.encode()))
+fernet = Fernet(encryption_key)
 
 cors_origins = _get_list_env(
     "BACKEND_CORS_ORIGINS",
@@ -51,6 +154,7 @@ mongo_db = mongo_client[MONGO_DB]
 servers_col = mongo_db["servers"]
 messages_col = mongo_db["messages"]
 users_col = mongo_db["users"]
+notifications_col = mongo_db["notifications"]
 
 # 비밀번호 해싱 및 인증 스킴 (bcrypt 72바이트 제한 회피를 위해 bcrypt_sha256 사용)
 pwd_context = CryptContext(schemes=["bcrypt_sha256"], deprecated="auto")
@@ -164,6 +268,8 @@ class User(BaseModel):
   email: str
   avatar: str
   created_at: datetime
+  notification_keywords: List[str] = Field(default_factory=list)  # 알림 키워드
+  deleted_at: Optional[datetime] = None  # 계정 탈퇴 시간
 
 
 class UserInDB(User):
@@ -205,6 +311,7 @@ class ChannelMember(BaseModel):
   name: str
   avatar: str
   status: str = "offline"  # online, offline, away
+  role: str = "member"  # owner, admin, moderator, member
 
 
 class Channel(BaseModel):
@@ -222,11 +329,20 @@ class Category(BaseModel):
   channels: List[Channel] = Field(default_factory=list)
 
 
+class ServerMember(BaseModel):
+  id: str
+  name: str
+  avatar: str
+  status: str = "offline"
+  role: str = "member"  # owner, admin, moderator, member
+  nickname: Optional[str] = None  # 서버별 닉네임
+
 class Server(BaseModel):
   id: str
   name: str
   avatar: str = "S"
   categories: List[Category] = Field(default_factory=list)
+  members: List[ServerMember] = Field(default_factory=list)
   created_at: datetime
 
 
@@ -240,6 +356,16 @@ class InviteRequest(BaseModel):
   username: Optional[str] = None
   email: Optional[str] = None
   channel_ids: Optional[List[str]] = None
+  role: str = "member"  # 초대 시 부여할 역할
+
+
+class RoleUpdateRequest(BaseModel):
+  user_id: str
+  role: str = Field(..., pattern="^(owner|admin|moderator|member)$")
+
+
+class NicknameUpdateRequest(BaseModel):
+  nickname: Optional[str] = Field(default=None, max_length=32)
 
 
 class CategoryCreate(BaseModel):
@@ -274,6 +400,26 @@ class MessageCreate(BaseModel):
   sender: Sender
   content: str = Field("", max_length=4000)
   files: List[FileAttachment] = Field(default_factory=list)
+
+
+class Notification(BaseModel):
+  id: str
+  user_id: str  # 알림을 받을 사용자
+  type: str  # "mention", "keyword"
+  message_id: str
+  channel_id: str
+  content: str  # 메시지 내용 일부
+  trigger: str  # 멘션된 이름 또는 키워드
+  read: bool = False
+  created_at: datetime
+
+
+class NotificationList(BaseModel):
+  notifications: List[Notification]
+
+
+class KeywordUpdate(BaseModel):
+  keywords: List[str] = Field(..., max_items=20)
 
 
 class StateResponse(BaseModel):
@@ -347,6 +493,8 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     email=user_doc["email"],
     avatar=user_doc["avatar"],
     created_at=user_doc["created_at"],
+    notification_keywords=user_doc.get("notification_keywords", []),
+    deleted_at=user_doc.get("deleted_at"),
   )
 
 def _server_doc_to_model(doc: Dict) -> Server:
@@ -355,8 +503,38 @@ def _server_doc_to_model(doc: Dict) -> Server:
       name=doc["name"],
       avatar=doc.get("avatar") or doc["name"][:1],
       categories=[Category(**cat) for cat in doc.get("categories", [])],
+      members=[ServerMember(**m) for m in doc.get("members", [])],
       created_at=doc.get("created_at", _now()),
   )
+
+
+# 권한 체크 함수
+async def _check_permission(server_id: str, user_id: str, required_roles: List[str]) -> bool:
+  """서버에서 사용자의 역할이 required_roles에 포함되는지 확인"""
+  server_doc = await servers_col.find_one({"_id": server_id})
+  if not server_doc:
+    return False
+
+  members = server_doc.get("members", [])
+  user_member = next((m for m in members if m.get("id") == user_id), None)
+
+  if not user_member:
+    return False
+
+  user_role = user_member.get("role", "member")
+  return user_role in required_roles
+
+
+async def _get_user_role(server_id: str, user_id: str) -> Optional[str]:
+  """서버에서 사용자의 역할 가져오기"""
+  server_doc = await servers_col.find_one({"_id": server_id})
+  if not server_doc:
+    return None
+
+  members = server_doc.get("members", [])
+  user_member = next((m for m in members if m.get("id") == user_id), None)
+
+  return user_member.get("role") if user_member else None
 
 
 async def _ensure_channel(channel_id: str):
@@ -468,6 +646,72 @@ async def logout():
   return {"status": "ok", "message": "logged out"}
 
 
+# 키워드 알림 관리
+@fastapi_app.get("/auth/me/keywords")
+async def get_keywords(current_user: User = Depends(get_current_user)):
+  user_doc = await users_col.find_one({"_id": current_user.id})
+  keywords = user_doc.get("notification_keywords", []) if user_doc else []
+  return {"keywords": keywords}
+
+
+@fastapi_app.put("/auth/me/keywords")
+async def update_keywords(payload: KeywordUpdate, current_user: User = Depends(get_current_user)):
+  await users_col.update_one(
+    {"_id": current_user.id},
+    {"$set": {"notification_keywords": payload.keywords}}
+  )
+  return {"keywords": payload.keywords}
+
+
+# 계정 탈퇴 (소프트 삭제 - 3개월 후 완전 삭제)
+@fastapi_app.delete("/auth/account", status_code=204)
+async def delete_account(current_user: User = Depends(get_current_user)):
+  await users_col.update_one(
+    {"_id": current_user.id},
+    {"$set": {"deleted_at": _now()}}
+  )
+  return None
+
+
+# -----------------------------
+# 알림 API
+# -----------------------------
+@fastapi_app.get("/notifications", response_model=NotificationList)
+async def get_notifications(current_user: User = Depends(get_current_user), unread_only: bool = False):
+  query = {"user_id": current_user.id}
+  if unread_only:
+    query["read"] = False
+
+  cursor = notifications_col.find(query).sort("created_at", -1).limit(50)
+  notifications = []
+  async for doc in cursor:
+    notifications.append(
+      Notification(
+        id=doc["_id"],
+        user_id=doc["user_id"],
+        type=doc["type"],
+        message_id=doc["message_id"],
+        channel_id=doc["channel_id"],
+        content=doc["content"],
+        trigger=doc["trigger"],
+        read=doc["read"],
+        created_at=doc["created_at"]
+      )
+    )
+  return {"notifications": notifications}
+
+
+@fastapi_app.patch("/notifications/{notification_id}/read")
+async def mark_notification_read(notification_id: str, current_user: User = Depends(get_current_user)):
+  result = await notifications_col.update_one(
+    {"_id": notification_id, "user_id": current_user.id},
+    {"$set": {"read": True}}
+  )
+  if result.modified_count == 0:
+    raise HTTPException(status_code=404, detail="Notification not found")
+  return {"status": "ok"}
+
+
 # -----------------------------
 # 서버 및 채널 API
 # -----------------------------
@@ -485,11 +729,13 @@ async def get_state(current_user: User = Depends(get_current_user)):
 async def create_server(payload: ServerCreate, current_user: User = Depends(get_current_user)):
   server_id = f"server_{uuid.uuid4().hex[:10]}"
 
+  # 서버 생성자를 owner로 설정
   owner_member = {
       "id": current_user.id,
       "name": current_user.name,
       "avatar": current_user.avatar or current_user.name[:1],
       "status": "online",
+      "role": "owner",  # owner 역할 부여
   }
 
   # 기본 채널에 owner를 members로 추가
@@ -501,7 +747,7 @@ async def create_server(payload: ServerCreate, current_user: User = Depends(get_
               id=f"channel_{uuid.uuid4().hex[:8]}",
               name="일반",
               type="text",
-              members=[owner_member],  # owner를 채널 멤버에 추가
+              members=[ChannelMember(**owner_member)],  # owner를 채널 멤버에 추가
           )
       ],
   )
@@ -542,6 +788,7 @@ async def invite_to_server(server_id: str, payload: InviteRequest, current_user:
 
   member = await _get_member_summary(target_user["_id"])
   member["status"] = "offline"
+  member["role"] = payload.role  # 초대 시 지정된 역할 부여
 
   # 서버 멤버에 추가
   await servers_col.update_one(
@@ -746,12 +993,14 @@ async def list_messages(channel_id: str):
   cursor = messages_col.find({"channel_id": channel_id}).sort("timestamp", 1)
   messages: List[Message] = []
   async for doc in cursor:
+    # 암호화된 content 복호화
+    decrypted_content = decrypt_text(doc["content"])
     messages.append(
         Message(
             id=doc["_id"],
             channel_id=doc["channel_id"],
             sender=Sender(**doc["sender"]),
-            content=doc["content"],
+            content=decrypted_content,
             timestamp=doc["timestamp"],
             files=[FileAttachment(**f) for f in doc.get("files", [])],
         )
@@ -784,18 +1033,24 @@ async def create_message(channel_id: str, payload: MessageCreate):
       files=payload.files,
   )
 
+  # content 암호화 후 저장
+  encrypted_content = encrypt_text(payload.content)
   await messages_col.insert_one(
       {
           "_id": message.id,
           "channel_id": channel_id,
           "sender": sender.model_dump(),
-          "content": message.content,
+          "content": encrypted_content,
           "timestamp": message.timestamp,
           "files": [f.model_dump() for f in message.files],
       }
   )
 
   print(f"[backend] message saved (REST) channel={channel_id}, id={message.id}, sender={sender.name}")
+
+  # 멘션 및 키워드 알림 처리 (암호화되지 않은 원본 content 사용)
+  if sender.id:
+    await process_mentions_and_keywords(message.id, channel_id, payload.content, sender.id)
 
   await sio.emit(
       "message",
@@ -954,6 +1209,224 @@ async def remove_channel_member(channel_id: str, user_id: str):
 
 
 # -----------------------------
+# 역할 관리 API
+# -----------------------------
+@fastapi_app.patch("/servers/{server_id}/members/{user_id}/role", response_model=ServerMember)
+async def update_member_role(
+    server_id: str,
+    user_id: str,
+    payload: RoleUpdateRequest,
+    current_user: User = Depends(get_current_user)
+):
+  # 권한 확인: owner와 admin만 역할 변경 가능
+  has_permission = await _check_permission(server_id, current_user.id, ["owner", "admin"])
+  if not has_permission:
+    raise HTTPException(status_code=403, detail="권한이 없습니다. owner 또는 admin만 역할을 변경할 수 있습니다.")
+
+  # owner는 다른 owner로만 역할 변경 가능 (owner 이전)
+  target_role = await _get_user_role(server_id, user_id)
+  current_role = await _get_user_role(server_id, current_user.id)
+
+  if target_role == "owner" and current_role != "owner":
+    raise HTTPException(status_code=403, detail="owner의 역할은 다른 owner만 변경할 수 있습니다.")
+
+  # 자기 자신의 역할 변경 방지 (owner 이전 제외)
+  if user_id == current_user.id and payload.role != "owner":
+    raise HTTPException(status_code=400, detail="자신의 역할은 변경할 수 없습니다.")
+
+  # 역할 업데이트
+  result = await servers_col.update_one(
+      {"_id": server_id, "members.id": user_id},
+      {"$set": {"members.$.role": payload.role}}
+  )
+
+  if result.matched_count == 0:
+    raise HTTPException(status_code=404, detail="서버 또는 멤버를 찾을 수 없습니다.")
+
+  # 업데이트된 멤버 정보 반환
+  server_doc = await servers_col.find_one({"_id": server_id})
+  members = server_doc.get("members", [])
+  updated_member = next((m for m in members if m.get("id") == user_id), None)
+
+  if not updated_member:
+    raise HTTPException(status_code=404, detail="멤버를 찾을 수 없습니다.")
+
+  return ServerMember(**updated_member)
+
+
+@fastapi_app.patch("/servers/{server_id}/members/me/nickname", response_model=ServerMember)
+async def update_my_nickname(
+    server_id: str,
+    payload: NicknameUpdateRequest,
+    current_user: User = Depends(get_current_user)
+):
+  """현재 사용자의 서버별 닉네임 업데이트"""
+  # 서버 멤버인지 확인
+  server_doc = await servers_col.find_one({"_id": server_id})
+  if not server_doc:
+    raise HTTPException(status_code=404, detail="서버를 찾을 수 없습니다.")
+
+  members = server_doc.get("members", [])
+  is_member = any(m.get("id") == current_user.id for m in members)
+
+  if not is_member:
+    raise HTTPException(status_code=403, detail="이 서버의 멤버가 아닙니다.")
+
+  # 닉네임 업데이트
+  result = await servers_col.update_one(
+      {"_id": server_id, "members.id": current_user.id},
+      {"$set": {"members.$.nickname": payload.nickname}}
+  )
+
+  if result.matched_count == 0:
+    raise HTTPException(status_code=404, detail="멤버를 찾을 수 없습니다.")
+
+  # 업데이트된 멤버 정보 반환
+  server_doc = await servers_col.find_one({"_id": server_id})
+  members = server_doc.get("members", [])
+  updated_member = next((m for m in members if m.get("id") == current_user.id), None)
+
+  if not updated_member:
+    raise HTTPException(status_code=404, detail="멤버를 찾을 수 없습니다.")
+
+  return ServerMember(**updated_member)
+
+
+@fastapi_app.delete("/servers/{server_id}/members/{user_id}", status_code=204)
+async def kick_member(
+    server_id: str,
+    user_id: str,
+    current_user: User = Depends(get_current_user)
+):
+  # 권한 확인: owner, admin, moderator만 추방 가능
+  has_permission = await _check_permission(server_id, current_user.id, ["owner", "admin", "moderator"])
+  if not has_permission:
+    raise HTTPException(status_code=403, detail="권한이 없습니다.")
+
+  # owner는 추방할 수 없음
+  target_role = await _get_user_role(server_id, user_id)
+  if target_role == "owner":
+    raise HTTPException(status_code=403, detail="서버 소유자는 추방할 수 없습니다.")
+
+  # 자기 자신 추방 방지
+  if user_id == current_user.id:
+    raise HTTPException(status_code=400, detail="자신을 추방할 수 없습니다.")
+
+  # 서버에서 멤버 제거
+  result = await servers_col.update_one(
+      {"_id": server_id},
+      {"$pull": {"members": {"id": user_id}}}
+  )
+
+  if result.modified_count == 0:
+    raise HTTPException(status_code=404, detail="멤버를 찾을 수 없습니다.")
+
+  # 모든 채널에서도 제거
+  server_doc = await servers_col.find_one({"_id": server_id})
+  categories = server_doc.get("categories", [])
+
+  for cat in categories:
+    for ch in cat.get("channels", []):
+      members = ch.get("members", [])
+      ch["members"] = [m for m in members if m.get("id") != user_id]
+
+  await servers_col.update_one(
+      {"_id": server_id},
+      {"$set": {"categories": categories}}
+  )
+
+  return None
+
+
+# -----------------------------
+# 검색 API
+# -----------------------------
+class SearchResults(BaseModel):
+  users: List[User] = Field(default_factory=list)
+  messages: List[Message] = Field(default_factory=list)
+
+
+@fastapi_app.get("/search", response_model=SearchResults)
+async def search(
+    q: str = "",
+    type: str = "all",  # all, users, messages
+    server_id: Optional[str] = None,
+    limit: int = 20,
+    current_user: User = Depends(get_current_user)
+):
+  """전체 검색: 사용자, 메시지"""
+  if not q or len(q) < 2:
+    return SearchResults()
+
+  results = SearchResults()
+
+  # 사용자 검색
+  if type in ["all", "users"]:
+    user_query = {
+        "$or": [
+            {"name": {"$regex": q, "$options": "i"}},
+            {"username": {"$regex": q, "$options": "i"}},
+            {"email": {"$regex": q, "$options": "i"}}
+        ]
+    }
+    user_cursor = users_col.find(user_query).limit(limit)
+    async for user_doc in user_cursor:
+      results.users.append(User(
+          id=user_doc["_id"],
+          username=user_doc["username"],
+          name=user_doc["name"],
+          email=user_doc["email"],
+          avatar=user_doc.get("avatar", user_doc["name"][:1]),
+          created_at=user_doc["created_at"]
+      ))
+
+  # 메시지 검색
+  if type in ["all", "messages"]:
+    message_query = {"content": {"$regex": q, "$options": "i"}}
+
+    # 특정 서버 내에서만 검색
+    if server_id:
+      server_doc = await servers_col.find_one({"_id": server_id})
+      if server_doc:
+        channel_ids = [
+            ch.get("id")
+            for cat in server_doc.get("categories", [])
+            for ch in cat.get("channels", [])
+        ]
+        message_query["channel_id"] = {"$in": channel_ids}
+
+    message_cursor = messages_col.find(message_query).sort("timestamp", -1).limit(limit)
+    async for msg_doc in message_cursor:
+      results.messages.append(Message(
+          id=msg_doc["_id"],
+          channel_id=msg_doc["channel_id"],
+          sender=Sender(**msg_doc["sender"]),
+          content=msg_doc["content"],
+          timestamp=msg_doc["timestamp"],
+          files=[FileAttachment(**f) for f in msg_doc.get("files", [])]
+      ))
+
+  return results
+
+
+@fastapi_app.get("/servers/{server_id}/search", response_model=SearchResults)
+async def search_in_server(
+    server_id: str,
+    q: str = "",
+    type: str = "all",
+    limit: int = 20,
+    current_user: User = Depends(get_current_user)
+):
+  """서버 내 검색"""
+  # 서버 멤버 확인
+  server_doc = await servers_col.find_one({"_id": server_id, "members.id": current_user.id})
+  if not server_doc:
+    raise HTTPException(status_code=403, detail="서버에 접근 권한이 없습니다.")
+
+  return await search(q=q, type=type, server_id=server_id, limit=limit, current_user=current_user)
+
+
+# -----------------------------
 # Socket.IO 이벤트
 # -----------------------------
 
@@ -1102,18 +1575,24 @@ async def message(sid, data):
       files=[FileAttachment(**f) for f in files_payload],
   )
 
+  # content 암호화 후 저장
+  encrypted_content = encrypt_text(content)
   await messages_col.insert_one(
       {
           "_id": message_obj.id,
           "channel_id": channel_id,
           "sender": message_obj.sender.model_dump(),
-          "content": message_obj.content,
+          "content": encrypted_content,
           "timestamp": message_obj.timestamp,
           "files": [f.model_dump() for f in message_obj.files],
       }
   )
 
   print(f"[backend] message saved (socket) channel={channel_id}, id={message_obj.id}, sender={message_obj.sender.name}")
+
+  # 멘션 및 키워드 알림 처리 (암호화되지 않은 원본 content 사용)
+  if message_obj.sender.id:
+    await process_mentions_and_keywords(message_obj.id, channel_id, content, message_obj.sender.id)
 
   await sio.emit(
       "message",
