@@ -803,6 +803,37 @@ class WorkMessenger {
       this.openFilePicker();
     });
 
+    // 드래그 앤 드롭 파일 업로드
+    const messagesContainer = document.getElementById('messages-container');
+    const inputArea = document.getElementById('input-area');
+
+    [messagesContainer, inputArea].forEach(container => {
+      if (!container) return;
+
+      container.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        container.classList.add('drag-over');
+      });
+
+      container.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        container.classList.remove('drag-over');
+      });
+
+      container.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        container.classList.remove('drag-over');
+
+        const files = e.dataTransfer?.files;
+        if (files && files.length > 0) {
+          this.handleFileSelect(files);
+        }
+      });
+    });
+
     // 이모지 버튼
     const emojiBtn = document.getElementById('emoji-btn');
     emojiBtn?.addEventListener('click', (e) => {
@@ -1642,7 +1673,25 @@ class WorkMessenger {
     panel.style.display = 'flex';
 
     // 현재 채널의 멤버 가져오기
-    const members = this.currentChannel ? (this.channelMembers[this.currentChannel.id] || []) : [];
+    let members = this.currentChannel ? (this.channelMembers[this.currentChannel.id] || []) : [];
+
+    // 현재 사용자 정보 가져오기
+    const currentUser = this.auth?.currentUser || this.user;
+    const currentUserId = currentUser?.id;
+
+    // 본인을 멤버 목록에 추가 (이미 있으면 제외하고 맨 위에 추가)
+    if (currentUserId) {
+      members = members.filter(m => m.id !== currentUserId);
+
+      const selfMember = {
+        id: currentUserId,
+        name: currentUser.name + ' (나)',
+        avatar: currentUser.avatar || currentUser.name[0],
+        status: this.user?.status || 'online'
+      };
+
+      members = [selfMember, ...members];
+    }
 
     // 멤버가 없는 경우
     if (members.length === 0) {
@@ -1919,6 +1968,8 @@ class WorkMessenger {
         filesHTML = '<div class="message-files">';
         msg.files.forEach(file => {
           const isImage = file.type.startsWith('image/');
+          const isCode = this.isCodeFile(file.name);
+
           if (isImage) {
             filesHTML += `
               <div class="message-file-item image-file">
@@ -1930,6 +1981,28 @@ class WorkMessenger {
                     </svg>
                   </button>
                 </div>
+              </div>
+            `;
+          } else if (isCode) {
+            const icon = '📝';
+            filesHTML += `
+              <div class="message-file-item code-file">
+                <div class="file-icon-large">${icon}</div>
+                <div class="file-details">
+                  <div class="file-name">${file.name}</div>
+                  <div class="file-size">${this.formatFileSize(file.size)}</div>
+                </div>
+                <button class="file-preview-btn" onclick="window.app.openCodePreview('${file.url}', '${file.name}')" title="미리보기">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" stroke="currentColor" stroke-width="2"/>
+                    <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/>
+                  </svg>
+                </button>
+                <button class="file-download-btn" onclick="window.app.downloadFile('${file.url}', '${file.name}')" title="다운로드">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </button>
               </div>
             `;
           } else {
@@ -2364,10 +2437,19 @@ class WorkMessenger {
   }
 
   connectSocket() {
-    if (!window.electronAPI || !this.apiBase) return;
+    console.log('[connectSocket] 호출됨');
+    console.log('[connectSocket] window.electronAPI:', !!window.electronAPI);
+    console.log('[connectSocket] this.apiBase:', this.apiBase);
+
+    if (!window.electronAPI || !this.apiBase) {
+      console.log('[connectSocket] 조기 반환: electronAPI 또는 apiBase 누락');
+      return;
+    }
 
     try {
-      window.electronAPI.connectSocket(this.apiBase);
+      console.log('[connectSocket] Socket.IO 연결 시도:', this.apiBase);
+      const connectResult = window.electronAPI.connectSocket(this.apiBase);
+      console.log('[connectSocket] connectSocket 결과:', connectResult);
 
       window.electronAPI.onSocketEvent('connect', () => {
         console.log('서버 연결됨');
@@ -3416,32 +3498,86 @@ class WorkMessenger {
     input.click();
   }
 
-  handleFileSelect(files) {
+  async handleFileSelect(files) {
     if (!files || files.length === 0) return;
 
     // 파일 크기 제한 체크 (50MB)
     const maxSize = 50 * 1024 * 1024;
 
-    Array.from(files).forEach(file => {
+    for (const file of Array.from(files)) {
       if (file.size > maxSize) {
         alert(`파일 "${file.name}"의 크기가 너무 큽니다. (최대 50MB)`);
-        return;
+        continue;
       }
 
-      // 파일 정보 저장
-      const fileObj = {
-        id: 'file_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+      // 업로드 중 표시를 위한 임시 파일 객체
+      const tempFileObj = {
+        id: 'temp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
         file: file,
         name: file.name,
         size: file.size,
         type: file.type,
-        url: URL.createObjectURL(file)
+        url: URL.createObjectURL(file),
+        uploading: true
       };
 
-      this.attachedFiles.push(fileObj);
+      this.attachedFiles.push(tempFileObj);
+      this.renderAttachedFiles();
+
+      try {
+        // 서버에 파일 업로드
+        const uploadedFile = await this.uploadFile(file);
+
+        // 임시 파일 객체 제거
+        const index = this.attachedFiles.findIndex(f => f.id === tempFileObj.id);
+        if (index !== -1) {
+          URL.revokeObjectURL(tempFileObj.url);
+          this.attachedFiles.splice(index, 1);
+        }
+
+        // 업로드된 파일 정보로 교체
+        this.attachedFiles.push({
+          id: uploadedFile.id,
+          name: uploadedFile.name,
+          size: uploadedFile.size,
+          type: uploadedFile.type,
+          url: `${this.apiBase}${uploadedFile.url}`
+        });
+
+        this.renderAttachedFiles();
+      } catch (error) {
+        console.error('파일 업로드 실패:', error);
+        alert(`파일 "${file.name}" 업로드 실패: ${error.message}`);
+
+        // 임시 파일 객체 제거
+        const index = this.attachedFiles.findIndex(f => f.id === tempFileObj.id);
+        if (index !== -1) {
+          URL.revokeObjectURL(tempFileObj.url);
+          this.attachedFiles.splice(index, 1);
+          this.renderAttachedFiles();
+        }
+      }
+    }
+  }
+
+  async uploadFile(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch(`${this.apiBase}/files/upload`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${this.auth.token}`
+      },
+      body: formData
     });
 
-    this.renderAttachedFiles();
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: response.statusText }));
+      throw new Error(error.detail || '파일 업로드 실패');
+    }
+
+    return await response.json();
   }
 
   renderAttachedFiles() {
@@ -3541,6 +3677,16 @@ class WorkMessenger {
     return '📎';
   }
 
+  isCodeFile(fileName) {
+    const codeExtensions = [
+      '.js', '.jsx', '.ts', '.tsx', '.py', '.java', '.cpp', '.c', '.h', '.hpp',
+      '.cs', '.php', '.rb', '.go', '.rs', '.swift', '.kt', '.scala', '.r',
+      '.html', '.css', '.scss', '.sass', '.less', '.xml', '.json', '.yaml', '.yml',
+      '.md', '.sql', '.sh', '.bash', '.ps1', '.bat', '.cmd', '.vue', '.svelte'
+    ];
+    return codeExtensions.some(ext => fileName.toLowerCase().endsWith(ext));
+  }
+
   openFilePreview(url, name, type) {
     // 파일 미리보기 모달 생성
     const modal = document.createElement('div');
@@ -3589,6 +3735,77 @@ class WorkMessenger {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+  }
+
+  async openCodePreview(url, name) {
+    try {
+      // 파일 내용 가져오기
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('파일을 불러올 수 없습니다.');
+
+      const content = await response.text();
+
+      // 파일 확장자로 언어 감지
+      const extension = name.split('.').pop().toLowerCase();
+      const languageMap = {
+        'js': 'javascript', 'jsx': 'javascript', 'ts': 'typescript', 'tsx': 'typescript',
+        'py': 'python', 'java': 'java', 'cpp': 'cpp', 'c': 'c', 'cs': 'csharp',
+        'php': 'php', 'rb': 'ruby', 'go': 'go', 'rs': 'rust', 'swift': 'swift',
+        'html': 'html', 'css': 'css', 'scss': 'scss', 'json': 'json', 'xml': 'xml',
+        'sql': 'sql', 'sh': 'bash', 'bash': 'bash', 'md': 'markdown', 'yml': 'yaml', 'yaml': 'yaml'
+      };
+      const language = languageMap[extension] || 'plaintext';
+
+      // 코드 미리보기 모달 생성
+      const modal = document.createElement('div');
+      modal.className = 'file-preview-modal code-preview';
+      modal.innerHTML = `
+        <div class="file-preview-overlay" onclick="this.parentElement.remove()"></div>
+        <div class="file-preview-content">
+          <div class="file-preview-header">
+            <span class="file-preview-title">${name}</span>
+            <div class="file-preview-language">${language}</div>
+            <button class="file-preview-close" onclick="this.closest('.file-preview-modal').remove()">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+            </button>
+          </div>
+          <div class="file-preview-body code-preview-body">
+            <pre><code class="language-${language}">${this.escapeHtml(content)}</code></pre>
+          </div>
+          <div class="file-preview-footer">
+            <button class="btn-secondary" onclick="window.app.downloadFile('${url}', '${name}')">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              다운로드
+            </button>
+          </div>
+        </div>
+      `;
+
+      document.body.appendChild(modal);
+
+      // ESC 키로 닫기
+      const escHandler = (e) => {
+        if (e.key === 'Escape') {
+          modal.remove();
+          document.removeEventListener('keydown', escHandler);
+        }
+      };
+      document.addEventListener('keydown', escHandler);
+
+    } catch (error) {
+      console.error('코드 미리보기 오류:', error);
+      alert('코드 파일을 미리볼 수 없습니다: ' + error.message);
+    }
+  }
+
+  escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
   }
 
   // ========================================

@@ -1,12 +1,16 @@
 import os
 import uuid
+import mimetypes
+import aiofiles
+from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional
 
 import socketio
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.responses import FileResponse
 from jose import JWTError, jwt
 from motor.motor_asyncio import AsyncIOMotorClient
 from passlib.context import CryptContext
@@ -36,6 +40,11 @@ cors_origins = _get_list_env(
     ["http://localhost:3000", "http://localhost:5173", "http://localhost:8080"],
 )
 
+# 파일 업로드 설정
+UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads"))
+UPLOAD_DIR.mkdir(exist_ok=True)  # uploads 폴더 생성
+MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+
 # DB 클라이언트
 mongo_client = AsyncIOMotorClient(MONGO_URI)
 mongo_db = mongo_client[MONGO_DB]
@@ -50,8 +59,10 @@ security = HTTPBearer()
 # Socket.IO 서버 (ASGI)
 sio = socketio.AsyncServer(
     async_mode="asgi",
-    cors_allowed_origins=cors_origins or "*",
+    cors_allowed_origins="*",  # 모든 origin 허용 (디버깅용)
     allow_upgrades=True,
+    logger=True,  # Socket.IO 로깅 활성화
+    engineio_logger=True,  # Engine.IO 로깅 활성화
 )
 
 # FastAPI 앱
@@ -473,6 +484,15 @@ async def get_state(current_user: User = Depends(get_current_user)):
 @fastapi_app.post("/servers", response_model=Server, status_code=201)
 async def create_server(payload: ServerCreate, current_user: User = Depends(get_current_user)):
   server_id = f"server_{uuid.uuid4().hex[:10]}"
+
+  owner_member = {
+      "id": current_user.id,
+      "name": current_user.name,
+      "avatar": current_user.avatar or current_user.name[:1],
+      "status": "online",
+  }
+
+  # 기본 채널에 owner를 members로 추가
   default_category = Category(
       id=f"cat_{uuid.uuid4().hex[:8]}",
       name="텍스트 채널",
@@ -481,16 +501,10 @@ async def create_server(payload: ServerCreate, current_user: User = Depends(get_
               id=f"channel_{uuid.uuid4().hex[:8]}",
               name="일반",
               type="text",
+              members=[owner_member],  # owner를 채널 멤버에 추가
           )
       ],
   )
-
-  owner_member = {
-      "id": current_user.id,
-      "name": current_user.name,
-      "avatar": current_user.avatar or current_user.name[:1],
-      "status": "online",
-  }
 
   doc = {
       "_id": server_id,
@@ -792,6 +806,69 @@ async def create_message(channel_id: str, payload: MessageCreate):
 
 
 # -----------------------------
+# 파일 업로드 API
+# -----------------------------
+@fastapi_app.post("/files/upload", response_model=FileAttachment)
+async def upload_file(file: UploadFile = File(...), current_user: User = Depends(get_current_user)):
+  # 파일 크기 검사
+  content = await file.read()
+  if len(content) > MAX_FILE_SIZE:
+    raise HTTPException(status_code=413, detail=f"File too large. Maximum size is {MAX_FILE_SIZE // 1024 // 1024}MB")
+
+  # 파일 ID 생성
+  file_id = f"file_{uuid.uuid4().hex[:12]}"
+
+  # 파일 확장자 추출
+  file_extension = ""
+  if file.filename and "." in file.filename:
+    file_extension = file.filename.split(".")[-1]
+
+  # 저장 파일명
+  saved_filename = f"{file_id}.{file_extension}" if file_extension else file_id
+  file_path = UPLOAD_DIR / saved_filename
+
+  # 파일 저장
+  async with aiofiles.open(file_path, 'wb') as f:
+    await f.write(content)
+
+  # MIME 타입 감지
+  mime_type = file.content_type
+  if not mime_type:
+    mime_type, _ = mimetypes.guess_type(file.filename or "")
+    mime_type = mime_type or "application/octet-stream"
+
+  file_attachment = FileAttachment(
+      id=file_id,
+      name=file.filename or saved_filename,
+      size=len(content),
+      type=mime_type,
+      url=f"/files/{file_id}"
+  )
+
+  return file_attachment
+
+
+@fastapi_app.get("/files/{file_id}")
+async def get_file(file_id: str):
+  # uploads 폴더에서 file_id로 시작하는 파일 찾기
+  matching_files = list(UPLOAD_DIR.glob(f"{file_id}.*"))
+  if not matching_files:
+    # 확장자 없는 파일 찾기
+    file_path = UPLOAD_DIR / file_id
+    if not file_path.exists():
+      raise HTTPException(status_code=404, detail="File not found")
+  else:
+    file_path = matching_files[0]
+
+  # MIME 타입 추측
+  mime_type, _ = mimetypes.guess_type(str(file_path))
+  if not mime_type:
+    mime_type = "application/octet-stream"
+
+  return FileResponse(file_path, media_type=mime_type)
+
+
+# -----------------------------
 # 채널 멤버 API
 # -----------------------------
 @fastapi_app.get(
@@ -911,6 +988,7 @@ async def _get_member_summary(user_id: str) -> Dict:
 
 @sio.event
 async def connect(sid, environ):
+  print(f"[backend] Socket.IO client connected: {sid}")
   await sio.save_session(sid, {"channels": [], "user_id": None})
 
 
