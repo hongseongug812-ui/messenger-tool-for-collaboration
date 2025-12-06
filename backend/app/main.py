@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field, EmailStr
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from openai import OpenAI
 
 
 def _get_list_env(key: str, default: List[str]) -> List[str]:
@@ -159,6 +160,9 @@ notifications_col = mongo_db["notifications"]
 # 비밀번호 해싱 및 인증 스킴 (bcrypt 72바이트 제한 회피를 위해 bcrypt_sha256 사용)
 pwd_context = CryptContext(schemes=["bcrypt_sha256"], deprecated="auto")
 security = HTTPBearer()
+
+# OpenAI 클라이언트
+openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY")) if os.getenv("OPENAI_API_KEY") else None
 
 # Socket.IO 서버 (ASGI)
 sio = socketio.AsyncServer(
@@ -1601,6 +1605,130 @@ async def message(sid, data):
       skip_sid=sid,  # 보낸 클라이언트를 제외하고 다른 참가자에게만 전송
   )
   return True
+
+
+# -----------------------------
+# AI 기능
+# -----------------------------
+
+async def summarize_conversation(messages: List[Dict]) -> str:
+  """대화 내용을 요약합니다"""
+  if not openai_client:
+    raise HTTPException(status_code=503, detail="OpenAI API가 설정되지 않았습니다")
+
+  if not messages:
+    return "요약할 메시지가 없습니다."
+
+  # 메시지를 텍스트로 변환
+  conversation_text = "\n".join([
+    f"{msg.get('sender', {}).get('name', 'Unknown')}: {decrypt_text(msg.get('content', ''))}"
+    for msg in messages
+  ])
+
+  try:
+    response = openai_client.chat.completions.create(
+      model="gpt-4o-mini",
+      messages=[
+        {"role": "system", "content": "당신은 대화 내용을 간결하게 요약하는 어시스턴트입니다. 3줄 이내로 핵심만 요약해주세요."},
+        {"role": "user", "content": f"다음 대화를 3줄로 요약해주세요:\n\n{conversation_text}"}
+      ],
+      temperature=0.3,
+      max_tokens=300
+    )
+    return response.choices[0].message.content
+  except Exception as e:
+    print(f"[AI] 요약 오류: {e}")
+    raise HTTPException(status_code=500, detail=f"요약 생성 중 오류 발생: {str(e)}")
+
+
+async def extract_tasks(messages: List[Dict]) -> List[Dict]:
+  """대화에서 할 일을 추출합니다"""
+  if not openai_client:
+    raise HTTPException(status_code=503, detail="OpenAI API가 설정되지 않았습니다")
+
+  if not messages:
+    return []
+
+  # 메시지를 텍스트로 변환
+  conversation_text = "\n".join([
+    f"{msg.get('sender', {}).get('name', 'Unknown')}: {decrypt_text(msg.get('content', ''))}"
+    for msg in messages
+  ])
+
+  try:
+    response = openai_client.chat.completions.create(
+      model="gpt-4o-mini",
+      messages=[
+        {"role": "system", "content": """당신은 대화에서 할 일(TODO)을 추출하는 어시스턴트입니다.
+다음 형식의 JSON 배열로 응답해주세요:
+[
+  {"task": "할 일 내용", "assignee": "담당자 이름 (언급된 경우)", "deadline": "마감일 (언급된 경우)"},
+  ...
+]
+언급되지 않은 필드는 null로 설정하세요."""},
+        {"role": "user", "content": f"다음 대화에서 할 일을 추출해주세요:\n\n{conversation_text}"}
+      ],
+      temperature=0.3,
+      max_tokens=500,
+      response_format={"type": "json_object"}
+    )
+
+    import json
+    result = json.loads(response.choices[0].message.content)
+    # tasks 키가 있으면 그것을 사용, 없으면 전체를 배열로 간주
+    tasks = result.get("tasks", result if isinstance(result, list) else [])
+    return tasks if isinstance(tasks, list) else []
+  except Exception as e:
+    print(f"[AI] 할 일 추출 오류: {e}")
+    raise HTTPException(status_code=500, detail=f"할 일 추출 중 오류 발생: {str(e)}")
+
+
+@fastapi_app.post("/channels/{channel_id}/summarize")
+async def summarize_channel(
+    channel_id: str,
+    hours: int = 1,
+    current_user: User = Depends(get_current_user)
+):
+  """최근 대화를 요약합니다"""
+  # 권한 확인 (채널 멤버인지)
+  # 간단하게 메시지가 있는지만 확인
+  since = _now() - timedelta(hours=hours)
+
+  messages_cursor = messages_col.find({
+    "channel_id": channel_id,
+    "timestamp": {"$gte": since}
+  }).sort("timestamp", 1)
+
+  messages = await messages_cursor.to_list(length=100)
+
+  if not messages:
+    return {"summary": f"최근 {hours}시간 동안 메시지가 없습니다."}
+
+  summary = await summarize_conversation(messages)
+  return {"summary": summary, "message_count": len(messages), "hours": hours}
+
+
+@fastapi_app.post("/channels/{channel_id}/extract-tasks")
+async def extract_channel_tasks(
+    channel_id: str,
+    hours: int = 24,
+    current_user: User = Depends(get_current_user)
+):
+  """최근 대화에서 할 일을 추출합니다"""
+  since = _now() - timedelta(hours=hours)
+
+  messages_cursor = messages_col.find({
+    "channel_id": channel_id,
+    "timestamp": {"$gte": since}
+  }).sort("timestamp", 1)
+
+  messages = await messages_cursor.to_list(length=200)
+
+  if not messages:
+    return {"tasks": [], "message_count": 0}
+
+  tasks = await extract_tasks(messages)
+  return {"tasks": tasks, "message_count": len(messages), "hours": hours}
 
 
 # uvicorn entrypoint expects `app`

@@ -167,7 +167,9 @@ class WorkMessenger {
       { name: '/kick', description: '사용자 추방', icon: '👢' },
       { name: '/nick', description: '닉네임 변경', icon: '✏️' },
       { name: '/poll', description: '투표 만들기 (/poll 질문 | 보기1 | 보기2 ...)', icon: '📊' },
-      { name: '/giphy', description: 'GIF 검색 후 첨부 (/giphy 검색어)', icon: '🎬' }
+      { name: '/giphy', description: 'GIF 검색 후 첨부 (/giphy 검색어)', icon: '🎬' },
+      { name: '/summarize', description: 'AI 대화 요약 (/summarize [시간])', icon: '🤖' },
+      { name: '/tasks', description: 'AI 할 일 추출 (/tasks [시간])', icon: '📋' }
     ];
 
     // 인증 상태
@@ -2626,6 +2628,107 @@ class WorkMessenger {
         } catch (error) {
           console.error('GIPHY 검색 실패:', error);
           alert('GIF 검색에 실패했습니다.');
+        }
+        return true;
+      }
+
+      case '/summarize': {
+        if (!this.currentChannel) {
+          this.showToast('채널을 선택해주세요', 'error');
+          return true;
+        }
+
+        const hours = parseInt(args) || 1;
+        this.showToast(`최근 ${hours}시간 대화 요약 중...`, 'info');
+
+        try {
+          const response = await fetch(`${this.apiBase}/channels/${this.currentChannel.id}/summarize?hours=${hours}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${this.authToken}`
+            }
+          });
+
+          if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'AI 요약 실패');
+          }
+
+          const data = await response.json();
+
+          // AI 결과를 특별한 메시지로 표시
+          const summaryMessage = {
+            id: Date.now(),
+            sender: { name: 'AI 요약', avatar: '🤖', id: 'ai' },
+            content: `**📝 최근 ${data.hours}시간 대화 요약 (${data.message_count}개 메시지)**\n\n${data.summary}`,
+            sent: false,
+            time: this.getCurrentTimeString(),
+            type: 'ai-summary'
+          };
+
+          this.addLocalMessage(this.currentChannel.id, summaryMessage);
+          this.showToast('대화 요약 완료!', 'success');
+        } catch (error) {
+          console.error('AI 요약 오류:', error);
+          this.showToast(`AI 요약 실패: ${error.message}`, 'error');
+        }
+        return true;
+      }
+
+      case '/tasks': {
+        if (!this.currentChannel) {
+          this.showToast('채널을 선택해주세요', 'error');
+          return true;
+        }
+
+        const hours = parseInt(args) || 24;
+        this.showToast(`최근 ${hours}시간 대화에서 할 일 추출 중...`, 'info');
+
+        try {
+          const response = await fetch(`${this.apiBase}/channels/${this.currentChannel.id}/extract-tasks?hours=${hours}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${this.authToken}`
+            }
+          });
+
+          if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'AI 할 일 추출 실패');
+          }
+
+          const data = await response.json();
+
+          // 할 일 목록을 포맷팅
+          let taskList = `**📋 최근 ${data.hours}시간 대화에서 추출된 할 일 (${data.message_count}개 메시지)**\n\n`;
+
+          if (data.tasks.length === 0) {
+            taskList += '추출된 할 일이 없습니다.';
+          } else {
+            data.tasks.forEach((task, index) => {
+              taskList += `${index + 1}. **${task.task}**\n`;
+              if (task.assignee) taskList += `   담당자: ${task.assignee}\n`;
+              if (task.deadline) taskList += `   마감일: ${task.deadline}\n`;
+              taskList += '\n';
+            });
+          }
+
+          const tasksMessage = {
+            id: Date.now(),
+            sender: { name: 'AI 할 일', avatar: '📋', id: 'ai' },
+            content: taskList,
+            sent: false,
+            time: this.getCurrentTimeString(),
+            type: 'ai-tasks'
+          };
+
+          this.addLocalMessage(this.currentChannel.id, tasksMessage);
+          this.showToast(`${data.tasks.length}개의 할 일 추출 완료!`, 'success');
+        } catch (error) {
+          console.error('AI 할 일 추출 오류:', error);
+          this.showToast(`AI 할 일 추출 실패: ${error.message}`, 'error');
         }
         return true;
       }

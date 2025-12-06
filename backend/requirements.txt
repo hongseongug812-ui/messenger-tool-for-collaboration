@@ -10,3 +10,4 @@ bcrypt==4.1.2
 aiofiles==24.1.0
 python-multipart==0.0.18
 cryptography==46.0.3
+openai==2.9.0
