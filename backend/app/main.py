@@ -156,6 +156,10 @@ servers_col = mongo_db["servers"]
 messages_col = mongo_db["messages"]
 users_col = mongo_db["users"]
 notifications_col = mongo_db["notifications"]
+audit_logs_col = mongo_db["audit_logs"]
+dm_channels_col = mongo_db["dm_channels"]  # DM and group DM channels
+user_channel_reads_col = mongo_db["user_channel_reads"]  # Track last read timestamps
+notification_settings_col = mongo_db["notification_settings"]  # Notification preferences
 
 # 비밀번호 해싱 및 인증 스킴 (bcrypt 72바이트 제한 회피를 위해 bcrypt_sha256 사용)
 pwd_context = CryptContext(schemes=["bcrypt_sha256"], deprecated="auto")
@@ -275,9 +279,28 @@ class User(BaseModel):
   notification_keywords: List[str] = Field(default_factory=list)  # 알림 키워드
   deleted_at: Optional[datetime] = None  # 계정 탈퇴 시간
 
+  # 조직 정보 (업무용 메신저 핵심)
+  job_title: Optional[str] = None  # 직책 (주임, 대리, 과장 등)
+  department: Optional[str] = None  # 부서
+  extension: Optional[str] = None  # 내선번호
+  phone: Optional[str] = None  # 회사 번호
+  location: Optional[str] = None  # 근무지 (본사/지점/재택 등)
+
 
 class UserInDB(User):
   hashed_password: str
+
+
+class UserProfileUpdate(BaseModel):
+  """프로필 업데이트 모델 (업무용 정보 포함)"""
+  name: Optional[str] = None
+  email: Optional[EmailStr] = None
+  job_title: Optional[str] = None  # 직책
+  department: Optional[str] = None  # 부서
+  extension: Optional[str] = None  # 내선번호
+  phone: Optional[str] = None  # 회사 번호
+  location: Optional[str] = None  # 근무지
+  notification_keywords: Optional[List[str]] = None  # 알림 키워드
 
 
 class Token(BaseModel):
@@ -321,9 +344,16 @@ class ChannelMember(BaseModel):
 class Channel(BaseModel):
   id: str
   name: str
-  type: str = "text"
+  type: str = "text"  # "text" | "dm" | "group_dm"
   unread: int = 0
   members: List[ChannelMember] = Field(default_factory=list)
+  server_id: Optional[str] = None  # None for DM channels
+  participants: List[str] = Field(default_factory=list)  # User IDs for DM channels
+  # Permission fields
+  is_private: bool = False  # If true, only allowed_roles/allowed_members can access
+  allowed_roles: List[str] = Field(default_factory=list)  # Roles that can access (e.g., ["admin", "moderator"])
+  allowed_members: List[str] = Field(default_factory=list)  # Specific user IDs that can access
+  post_permission: str = "everyone"  # "everyone" | "admin_only" | "owner_only"
 
 
 class Category(BaseModel):
@@ -385,10 +415,23 @@ class CategoryUpdate(BaseModel):
 class ChannelCreate(BaseModel):
   name: str = Field(..., min_length=1, max_length=80)
   type: str = "text"
+  is_private: bool = False
+  allowed_roles: List[str] = Field(default_factory=list)
+  allowed_members: List[str] = Field(default_factory=list)
+  post_permission: str = "everyone"  # "everyone" | "admin_only" | "owner_only"
 
 
 class ChannelUpdate(BaseModel):
   name: Optional[str] = Field(default=None, min_length=1, max_length=80)
+  is_private: Optional[bool] = None
+  allowed_roles: Optional[List[str]] = None
+  allowed_members: Optional[List[str]] = None
+  post_permission: Optional[str] = None
+
+
+class DMCreate(BaseModel):
+  participants: List[str] = Field(..., min_items=1, max_items=10)  # User IDs (for 1:1 DM, length=1; for group DM, length>1)
+  name: Optional[str] = Field(default=None, max_length=80)  # Optional name for group DMs
 
 
 class Message(BaseModel):
@@ -398,12 +441,31 @@ class Message(BaseModel):
   content: str
   timestamp: datetime
   files: List[FileAttachment] = Field(default_factory=list)
+  thread_id: Optional[str] = None  # 답글인 경우 원본 메시지 ID
+  reply_count: int = 0  # 이 메시지에 달린 답글 수
+  edited_at: Optional[datetime] = None  # 수정된 시간
+  is_deleted: bool = False  # 삭제 여부
 
 
 class MessageCreate(BaseModel):
   sender: Sender
   content: str = Field("", max_length=4000)
   files: List[FileAttachment] = Field(default_factory=list)
+  thread_id: Optional[str] = None  # 답글인 경우 원본 메시지 ID
+
+
+class AuditLog(BaseModel):
+  id: str
+  action: str  # "edit_message", "delete_message"
+  user_id: str
+  user_name: str
+  target_id: str  # message_id
+  target_type: str  # "message"
+  old_content: Optional[str] = None
+  new_content: Optional[str] = None
+  timestamp: datetime
+  channel_id: str
+  server_id: str
 
 
 class Notification(BaseModel):
@@ -420,6 +482,94 @@ class Notification(BaseModel):
 
 class NotificationList(BaseModel):
   notifications: List[Notification]
+
+
+class SearchQuery(BaseModel):
+  query: str = Field(..., min_length=1, max_length=200)
+  author: Optional[str] = None  # Filter by username or user ID
+  channel_id: Optional[str] = None  # Filter by channel
+  server_id: Optional[str] = None  # Filter by server
+  from_date: Optional[datetime] = None  # From date
+  to_date: Optional[datetime] = None  # To date
+  my_messages_only: bool = False  # Only search user's own messages
+  limit: int = Field(default=50, ge=1, le=100)
+  offset: int = Field(default=0, ge=0)
+
+
+class MessageSearchResult(BaseModel):
+  message: Message
+  server_id: Optional[str] = None
+  server_name: Optional[str] = None
+  channel_name: str
+  highlight: str  # Highlighted snippet
+
+
+class SearchMessagesResponse(BaseModel):
+  results: List[MessageSearchResult]
+  total: int
+  query: str
+
+
+class FileSearchResult(BaseModel):
+  file: FileAttachment
+  message_id: str
+  channel_id: str
+  channel_name: str
+  server_id: Optional[str] = None
+  server_name: Optional[str] = None
+  sender: Sender
+  timestamp: datetime
+
+
+class SearchFilesResponse(BaseModel):
+  results: List[FileSearchResult]
+  total: int
+  query: str
+
+
+class NotificationLevel(str):
+  """알림 레벨"""
+  ALL = "all"  # 모든 메시지
+  MENTIONS = "mentions"  # 멘션만
+  NOTHING = "nothing"  # 알림 없음
+
+
+class ChannelNotificationSettings(BaseModel):
+  channel_id: str
+  level: str = "all"  # "all" | "mentions" | "nothing"
+
+
+class ServerNotificationSettings(BaseModel):
+  server_id: str
+  muted: bool = False  # 서버 전체 음소거
+
+
+class NotificationSettings(BaseModel):
+  user_id: str
+  channels: List[ChannelNotificationSettings] = Field(default_factory=list)
+  servers: List[ServerNotificationSettings] = Field(default_factory=list)
+  desktop_enabled: bool = True
+  sound_enabled: bool = True
+
+
+class MarkAsReadRequest(BaseModel):
+  channel_id: str
+  timestamp: Optional[datetime] = None  # None = mark all as read
+
+
+class UnreadCount(BaseModel):
+  channel_id: str
+  count: int
+  has_mention: bool = False
+
+
+class UnreadCountsResponse(BaseModel):
+  unreads: List[UnreadCount]
+
+
+class MentionsResponse(BaseModel):
+  mentions: List[Notification]
+  total: int
 
 
 class KeywordUpdate(BaseModel):
@@ -501,12 +651,34 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     deleted_at=user_doc.get("deleted_at"),
   )
 
-def _server_doc_to_model(doc: Dict) -> Server:
+def _server_doc_to_model(doc: Dict, filter_user_id: Optional[str] = None) -> Server:
+  categories = doc.get("categories", [])
+
+  # If filter_user_id is provided, filter channels based on permissions
+  if filter_user_id:
+    # Get user's role in this server
+    members = doc.get("members", [])
+    user_member = next((m for m in members if m.get("id") == filter_user_id), None)
+    user_role = user_member.get("role", "member") if user_member else "member"
+
+    # Filter channels in each category
+    filtered_categories = []
+    for cat_data in categories:
+      cat = Category(**cat_data)
+      # Filter channels user can access
+      accessible_channels = [
+        ch for ch in cat.channels
+        if _can_access_channel(ch, filter_user_id, user_role)
+      ]
+      cat.channels = accessible_channels
+      filtered_categories.append(cat)
+    categories = [c.model_dump() for c in filtered_categories]
+
   return Server(
       id=doc["_id"],
       name=doc["name"],
       avatar=doc.get("avatar") or doc["name"][:1],
-      categories=[Category(**cat) for cat in doc.get("categories", [])],
+      categories=[Category(**cat) for cat in categories],
       members=[ServerMember(**m) for m in doc.get("members", [])],
       created_at=doc.get("created_at", _now()),
   )
@@ -567,6 +739,38 @@ def _message_to_response(msg: Message) -> Dict:
   data = msg.model_dump()
   data["timestamp"] = msg.timestamp.isoformat()
   return data
+
+
+def _can_access_channel(channel: Channel, user_id: str, user_role: str) -> bool:
+  """Check if a user can access a channel based on permissions"""
+  # Public channels are accessible to everyone
+  if not channel.is_private:
+    return True
+
+  # Check if user is in allowed_members list
+  if user_id in channel.allowed_members:
+    return True
+
+  # Check if user's role is in allowed_roles list
+  if user_role in channel.allowed_roles:
+    return True
+
+  # Owner and admin can access all channels
+  if user_role in ["owner", "admin"]:
+    return True
+
+  return False
+
+
+def _can_post_in_channel(channel: Channel, user_role: str) -> bool:
+  """Check if a user can post messages in a channel"""
+  if channel.post_permission == "everyone":
+    return True
+  elif channel.post_permission == "admin_only":
+    return user_role in ["owner", "admin"]
+  elif channel.post_permission == "owner_only":
+    return user_role == "owner"
+  return True  # Default to allowing
 
 
 # -----------------------------
@@ -635,6 +839,11 @@ async def login(credentials: UserLogin):
       email=user_doc["email"],
       avatar=user_doc["avatar"],
       created_at=user_doc["created_at"],
+      job_title=user_doc.get("job_title"),
+      department=user_doc.get("department"),
+      extension=user_doc.get("extension"),
+      phone=user_doc.get("phone"),
+      location=user_doc.get("location"),
   )
   return AuthResponse(access_token=access_token, token_type="bearer", user=user)
 
@@ -642,6 +851,75 @@ async def login(credentials: UserLogin):
 @fastapi_app.get("/auth/me", response_model=User)
 async def get_me(current_user: User = Depends(get_current_user)):
   return current_user
+
+
+@fastapi_app.put("/profile", response_model=User)
+async def update_profile(profile_data: UserProfileUpdate, current_user: User = Depends(get_current_user)):
+  """사용자 프로필 업데이트 (조직 정보 포함)"""
+  update_fields = {}
+
+  if profile_data.name is not None:
+    update_fields["name"] = profile_data.name
+  if profile_data.email is not None:
+    update_fields["email"] = profile_data.email
+  if profile_data.job_title is not None:
+    update_fields["job_title"] = profile_data.job_title
+  if profile_data.department is not None:
+    update_fields["department"] = profile_data.department
+  if profile_data.extension is not None:
+    update_fields["extension"] = profile_data.extension
+  if profile_data.phone is not None:
+    update_fields["phone"] = profile_data.phone
+  if profile_data.location is not None:
+    update_fields["location"] = profile_data.location
+  if profile_data.notification_keywords is not None:
+    update_fields["notification_keywords"] = profile_data.notification_keywords
+
+  if update_fields:
+    await users_col.update_one(
+      {"_id": current_user.id},
+      {"$set": update_fields}
+    )
+
+  # 업데이트된 사용자 정보 반환
+  updated_user_doc = await users_col.find_one({"_id": current_user.id})
+  return User(
+    id=updated_user_doc["_id"],
+    username=updated_user_doc["username"],
+    name=updated_user_doc["name"],
+    email=updated_user_doc["email"],
+    avatar=updated_user_doc["avatar"],
+    created_at=updated_user_doc["created_at"],
+    job_title=updated_user_doc.get("job_title"),
+    department=updated_user_doc.get("department"),
+    extension=updated_user_doc.get("extension"),
+    phone=updated_user_doc.get("phone"),
+    location=updated_user_doc.get("location"),
+    notification_keywords=updated_user_doc.get("notification_keywords", []),
+  )
+
+
+@fastapi_app.get("/users/{user_id}", response_model=User)
+async def get_user_profile(user_id: str, current_user: User = Depends(get_current_user)):
+  """다른 사용자의 프로필 조회 (업무용 정보 포함)"""
+  user_doc = await users_col.find_one({"_id": user_id})
+  if not user_doc:
+    raise HTTPException(status_code=404, detail="User not found")
+
+  return User(
+    id=user_doc["_id"],
+    username=user_doc["username"],
+    name=user_doc["name"],
+    email=user_doc["email"],
+    avatar=user_doc["avatar"],
+    created_at=user_doc["created_at"],
+    job_title=user_doc.get("job_title"),
+    department=user_doc.get("department"),
+    extension=user_doc.get("extension"),
+    phone=user_doc.get("phone"),
+    location=user_doc.get("location"),
+    notification_keywords=user_doc.get("notification_keywords", []),
+  )
 
 
 @fastapi_app.post("/auth/logout")
@@ -725,7 +1003,8 @@ async def get_state(current_user: User = Depends(get_current_user)):
   servers_cursor = servers_col.find({"members.id": current_user.id})
   servers: List[Server] = []
   async for doc in servers_cursor:
-    servers.append(_server_doc_to_model(doc))
+    # Filter channels based on user permissions
+    servers.append(_server_doc_to_model(doc, filter_user_id=current_user.id))
   return {"servers": servers}
 
 
@@ -921,6 +1200,10 @@ async def create_channel(server_id: str, category_id: str, payload: ChannelCreat
       name=payload.name,
       type=payload.type,
       unread=0,
+      is_private=payload.is_private,
+      allowed_roles=payload.allowed_roles,
+      allowed_members=payload.allowed_members,
+      post_permission=payload.post_permission,
   )
   result = await servers_col.update_one(
       {"_id": server_id},
@@ -942,6 +1225,14 @@ async def update_channel(server_id: str, category_id: str, channel_id: str, payl
   updates = {}
   if payload.name is not None:
     updates["categories.$[cat].channels.$[ch].name"] = payload.name
+  if payload.is_private is not None:
+    updates["categories.$[cat].channels.$[ch].is_private"] = payload.is_private
+  if payload.allowed_roles is not None:
+    updates["categories.$[cat].channels.$[ch].allowed_roles"] = payload.allowed_roles
+  if payload.allowed_members is not None:
+    updates["categories.$[cat].channels.$[ch].allowed_members"] = payload.allowed_members
+  if payload.post_permission is not None:
+    updates["categories.$[cat].channels.$[ch].post_permission"] = payload.post_permission
   if not updates:
     raise HTTPException(status_code=400, detail="No updates provided")
 
@@ -985,16 +1276,133 @@ async def delete_channel(server_id: str, category_id: str, channel_id: str):
   return None
 
 
+# ============ DM Channel Endpoints ============
+
+@fastapi_app.post("/dm", response_model=Channel, status_code=201)
+async def create_dm_channel(payload: DMCreate, authorization: str = Header(None)):
+  """Create a new DM or group DM channel"""
+  # Get current user from auth token
+  if not authorization or not authorization.startswith("Bearer "):
+    raise HTTPException(status_code=401, detail="Missing or invalid authorization header")
+
+  token = authorization.replace("Bearer ", "")
+  # Decode token to get user_id (simplified - you may want to use proper JWT validation)
+  current_user_id = token  # For now, using token as user_id
+
+  # Normalize participants list (remove duplicates, sort for consistency)
+  all_participants = list(set([current_user_id] + payload.participants))
+  all_participants.sort()
+
+  # Determine DM type
+  dm_type = "dm" if len(all_participants) == 2 else "group_dm"
+
+  # Check if DM channel already exists between these participants
+  existing_dm = await dm_channels_col.find_one({
+    "type": dm_type,
+    "participants": all_participants
+  })
+
+  if existing_dm:
+    # Return existing DM channel
+    return Channel(
+      id=existing_dm["_id"],
+      name=existing_dm.get("name", ""),
+      type=existing_dm.get("type", dm_type),
+      unread=existing_dm.get("unread", 0),
+      participants=existing_dm.get("participants", []),
+      server_id=None
+    )
+
+  # Create new DM channel
+  dm_id = f"dm_{uuid.uuid4().hex[:8]}"
+
+  # Generate name if not provided
+  if not payload.name:
+    if dm_type == "dm":
+      # For 1:1 DM, use other user's name
+      other_user_id = [p for p in all_participants if p != current_user_id][0]
+      user_doc = await users_col.find_one({"_id": other_user_id})
+      channel_name = user_doc.get("name", other_user_id) if user_doc else other_user_id
+    else:
+      # For group DM, use participant names
+      user_docs = await users_col.find({"_id": {"$in": all_participants}}).to_list(None)
+      names = [u.get("name", u["_id"]) for u in user_docs]
+      channel_name = ", ".join(names[:3])
+      if len(names) > 3:
+        channel_name += f" +{len(names) - 3}"
+  else:
+    channel_name = payload.name
+
+  dm_channel = {
+    "_id": dm_id,
+    "name": channel_name,
+    "type": dm_type,
+    "unread": 0,
+    "participants": all_participants,
+    "created_at": datetime.utcnow()
+  }
+
+  await dm_channels_col.insert_one(dm_channel)
+
+  return Channel(
+    id=dm_id,
+    name=channel_name,
+    type=dm_type,
+    unread=0,
+    participants=all_participants,
+    server_id=None
+  )
+
+
+@fastapi_app.get("/dm", response_model=List[Channel])
+async def get_dm_channels(authorization: str = Header(None)):
+  """Get all DM channels for the current user"""
+  if not authorization or not authorization.startswith("Bearer "):
+    raise HTTPException(status_code=401, detail="Missing or invalid authorization header")
+
+  token = authorization.replace("Bearer ", "")
+  current_user_id = token  # For now, using token as user_id
+
+  # Find all DM channels where user is a participant
+  dm_docs = await dm_channels_col.find({
+    "participants": current_user_id
+  }).to_list(None)
+
+  channels = []
+  for dm_doc in dm_docs:
+    channels.append(Channel(
+      id=dm_doc["_id"],
+      name=dm_doc.get("name", ""),
+      type=dm_doc.get("type", "dm"),
+      unread=dm_doc.get("unread", 0),
+      participants=dm_doc.get("participants", []),
+      server_id=None
+    ))
+
+  return channels
+
+
 @fastapi_app.get(
     "/channels/{channel_id}/messages",
     response_model=List[Message],
 )
 async def list_messages(channel_id: str):
-  server, category, channel = await _ensure_channel(channel_id)
-  if not channel:
-    raise HTTPException(status_code=404, detail="Channel not found")
+  # Check if it's a DM channel
+  if channel_id.startswith("dm_"):
+    dm_channel = await dm_channels_col.find_one({"_id": channel_id})
+    if not dm_channel:
+      raise HTTPException(status_code=404, detail="DM channel not found")
+  else:
+    # Check if it's a server channel
+    server, category, channel = await _ensure_channel(channel_id)
+    if not channel:
+      raise HTTPException(status_code=404, detail="Channel not found")
 
-  cursor = messages_col.find({"channel_id": channel_id}).sort("timestamp", 1)
+  # thread_id가 없는 메시지만 조회 (답글은 제외)
+  cursor = messages_col.find({
+    "channel_id": channel_id,
+    "$or": [{"thread_id": None}, {"thread_id": {"$exists": False}}]
+  }).sort("timestamp", 1)
   messages: List[Message] = []
   async for doc in cursor:
     # 암호화된 content 복호화
@@ -1007,9 +1415,43 @@ async def list_messages(channel_id: str):
             content=decrypted_content,
             timestamp=doc["timestamp"],
             files=[FileAttachment(**f) for f in doc.get("files", [])],
+            thread_id=doc.get("thread_id"),
+            reply_count=doc.get("reply_count", 0),
         )
     )
   return messages
+
+
+@fastapi_app.get(
+    "/messages/{message_id}/replies",
+    response_model=List[Message],
+)
+async def list_thread_replies(message_id: str):
+  """특정 메시지의 답글(스레드) 조회"""
+  # 원본 메시지 확인
+  parent_msg = await messages_col.find_one({"_id": message_id})
+  if not parent_msg:
+    raise HTTPException(status_code=404, detail="Message not found")
+
+  # 답글 조회
+  cursor = messages_col.find({"thread_id": message_id}).sort("timestamp", 1)
+  replies: List[Message] = []
+  async for doc in cursor:
+    # 암호화된 content 복호화
+    decrypted_content = decrypt_text(doc["content"])
+    replies.append(
+        Message(
+            id=doc["_id"],
+            channel_id=doc["channel_id"],
+            sender=Sender(**doc["sender"]),
+            content=decrypted_content,
+            timestamp=doc["timestamp"],
+            files=[FileAttachment(**f) for f in doc.get("files", [])],
+            thread_id=doc.get("thread_id"),
+            reply_count=doc.get("reply_count", 0),
+        )
+    )
+  return replies
 
 
 @fastapi_app.post(
@@ -1018,14 +1460,34 @@ async def list_messages(channel_id: str):
     status_code=201,
 )
 async def create_message(channel_id: str, payload: MessageCreate):
-  server, category, channel = await _ensure_channel(channel_id)
-  if not channel:
-    raise HTTPException(status_code=404, detail="Channel not found")
-  if payload.sender and payload.sender.id:
-    # 서버 멤버가 아닌 경우 차단
-    server_doc = await servers_col.find_one({"_id": server.id, "members.id": payload.sender.id})
-    if not server_doc:
-      raise HTTPException(status_code=403, detail="Not a member of this server")
+  # Check if it's a DM channel
+  if channel_id.startswith("dm_"):
+    dm_channel = await dm_channels_col.find_one({"_id": channel_id})
+    if not dm_channel:
+      raise HTTPException(status_code=404, detail="DM channel not found")
+    # Verify sender is a participant
+    if payload.sender and payload.sender.id:
+      if payload.sender.id not in dm_channel.get("participants", []):
+        raise HTTPException(status_code=403, detail="Not a participant of this DM")
+  else:
+    # Check if it's a server channel
+    server, category, channel = await _ensure_channel(channel_id)
+    if not channel:
+      raise HTTPException(status_code=404, detail="Channel not found")
+    if payload.sender and payload.sender.id:
+      # 서버 멤버가 아닌 경우 차단
+      server_doc = await servers_col.find_one({"_id": server.id, "members.id": payload.sender.id})
+      if not server_doc:
+        raise HTTPException(status_code=403, detail="Not a member of this server")
+
+      # Get user's role and check channel access permission
+      user_role = await _get_user_role(server.id, payload.sender.id)
+      if not _can_access_channel(channel, payload.sender.id, user_role or "member"):
+        raise HTTPException(status_code=403, detail="You don't have permission to access this channel")
+
+      # Check post permission
+      if not _can_post_in_channel(channel, user_role or "member"):
+        raise HTTPException(status_code=403, detail="You don't have permission to post in this channel")
 
   sender = _build_sender(payload.sender)
   message = Message(
@@ -1035,6 +1497,7 @@ async def create_message(channel_id: str, payload: MessageCreate):
       content=payload.content,
       timestamp=_now(),
       files=payload.files,
+      thread_id=payload.thread_id,
   )
 
   # content 암호화 후 저장
@@ -1047,8 +1510,16 @@ async def create_message(channel_id: str, payload: MessageCreate):
           "content": encrypted_content,
           "timestamp": message.timestamp,
           "files": [f.model_dump() for f in message.files],
+          "thread_id": payload.thread_id,
       }
   )
+
+  # 답글인 경우 원본 메시지의 reply_count 증가
+  if payload.thread_id:
+    await messages_col.update_one(
+      {"_id": payload.thread_id},
+      {"$inc": {"reply_count": 1}}
+    )
 
   print(f"[backend] message saved (REST) channel={channel_id}, id={message.id}, sender={sender.name}")
 
@@ -1062,6 +1533,71 @@ async def create_message(channel_id: str, payload: MessageCreate):
       room=channel_id,
   )
   return message
+
+
+@fastapi_app.delete("/messages/{message_id}")
+async def delete_message(
+    message_id: str,
+    current_user: User = Depends(get_current_user)
+):
+  """메시지 삭제 (본인 또는 관리자만 가능)"""
+  # 메시지 조회
+  msg_doc = await messages_col.find_one({"_id": message_id})
+  if not msg_doc:
+    raise HTTPException(status_code=404, detail="Message not found")
+
+  # 서버 정보 조회 (권한 확인용)
+  server_doc = await servers_col.find_one({"categories.channels.id": msg_doc["channel_id"]})
+  if not server_doc:
+    raise HTTPException(status_code=404, detail="Server not found")
+
+  # 권한 확인: 본인 또는 관리자
+  is_owner = msg_doc["sender"]["id"] == current_user.id
+  member = next((m for m in server_doc.get("members", []) if m["id"] == current_user.id), None)
+  is_admin = member and member.get("role") in ["owner", "admin", "moderator"] if member else False
+
+  if not (is_owner or is_admin):
+    raise HTTPException(status_code=403, detail="You don't have permission to delete this message")
+
+  # 감사 로그 생성
+  old_content = decrypt_text(msg_doc["content"])
+  audit_log = {
+    "_id": f"audit_{uuid.uuid4().hex[:12]}",
+    "action": "delete_message",
+    "user_id": current_user.id,
+    "user_name": current_user.username,
+    "target_id": message_id,
+    "target_type": "message",
+    "old_content": old_content,
+    "new_content": None,
+    "timestamp": _now(),
+    "channel_id": msg_doc["channel_id"],
+    "server_id": server_doc["_id"]
+  }
+  await audit_logs_col.insert_one(audit_log)
+
+  # 메시지 삭제 (소프트 삭제)
+  await messages_col.update_one(
+    {"_id": message_id},
+    {
+      "$set": {
+        "is_deleted": True,
+        "content": encrypt_text("[삭제된 메시지]")
+      }
+    }
+  )
+
+  # Socket.IO로 브로드캐스트
+  await sio.emit(
+    "message_deleted",
+    {
+      "channelId": msg_doc["channel_id"],
+      "messageId": message_id
+    },
+    room=msg_doc["channel_id"]
+  )
+
+  return {"status": "deleted", "message_id": message_id}
 
 
 # -----------------------------
@@ -1553,6 +2089,7 @@ async def message(sid, data):
   sender_payload = raw_message.get("sender")
   content = raw_message.get("content") or ""
   files_payload = raw_message.get("files") or []
+  thread_id = raw_message.get("thread_id") or raw_message.get("threadId")
 
   if not channel_id:
     return False
@@ -1577,6 +2114,7 @@ async def message(sid, data):
       content=content,
       timestamp=_now(),
       files=[FileAttachment(**f) for f in files_payload],
+      thread_id=thread_id,
   )
 
   # content 암호화 후 저장
@@ -1589,8 +2127,16 @@ async def message(sid, data):
           "content": encrypted_content,
           "timestamp": message_obj.timestamp,
           "files": [f.model_dump() for f in message_obj.files],
+          "thread_id": thread_id,
       }
   )
+
+  # 답글인 경우 원본 메시지의 reply_count 증가
+  if thread_id:
+    await messages_col.update_one(
+      {"_id": thread_id},
+      {"$inc": {"reply_count": 1}}
+    )
 
   print(f"[backend] message saved (socket) channel={channel_id}, id={message_obj.id}, sender={message_obj.sender.name}")
 
@@ -1708,6 +2254,31 @@ async def summarize_channel(
   return {"summary": summary, "message_count": len(messages), "hours": hours}
 
 
+@fastapi_app.post("/messages/{message_id}/summarize-thread")
+async def summarize_thread(
+    message_id: str,
+    current_user: User = Depends(get_current_user)
+):
+  """특정 스레드(답글)를 요약합니다"""
+  # 원본 메시지 확인
+  parent_msg = await messages_col.find_one({"_id": message_id})
+  if not parent_msg:
+    raise HTTPException(status_code=404, detail="Message not found")
+
+  # 스레드의 모든 답글 조회
+  messages_cursor = messages_col.find({
+    "thread_id": message_id
+  }).sort("timestamp", 1)
+
+  messages = await messages_cursor.to_list(length=100)
+
+  if not messages:
+    return {"summary": "이 메시지에 답글이 없습니다.", "message_count": 0}
+
+  summary = await summarize_conversation(messages)
+  return {"summary": summary, "message_count": len(messages), "thread_id": message_id}
+
+
 @fastapi_app.post("/channels/{channel_id}/extract-tasks")
 async def extract_channel_tasks(
     channel_id: str,
@@ -1729,6 +2300,484 @@ async def extract_channel_tasks(
 
   tasks = await extract_tasks(messages)
   return {"tasks": tasks, "message_count": len(messages), "hours": hours}
+
+
+# ========================================
+# 검색 API
+# ========================================
+
+@fastapi_app.post("/search/messages", response_model=SearchMessagesResponse)
+async def search_messages(
+    search_query: SearchQuery,
+    current_user: User = Depends(get_current_user)
+):
+  """메시지 검색 (채널, 서버, 작성자, 날짜 필터 지원)"""
+  # Build MongoDB query
+  mongo_query = {"is_deleted": {"$ne": True}}
+
+  # Text search in content (decrypt and search)
+  # Note: For production, consider using MongoDB text indexes
+  # For now, we'll use regex on decrypted content
+
+  # Author filter
+  if search_query.author:
+    mongo_query["$or"] = [
+      {"sender.username": {"$regex": search_query.author, "$options": "i"}},
+      {"sender.id": search_query.author}
+    ]
+
+  # Date range filter
+  if search_query.from_date or search_query.to_date:
+    date_query = {}
+    if search_query.from_date:
+      date_query["$gte"] = search_query.from_date
+    if search_query.to_date:
+      date_query["$lte"] = search_query.to_date
+    mongo_query["timestamp"] = date_query
+
+  # My messages only filter
+  if search_query.my_messages_only:
+    mongo_query["sender.id"] = current_user.id
+
+  # Channel filter
+  if search_query.channel_id:
+    mongo_query["channel_id"] = search_query.channel_id
+
+  # Get all messages matching filters
+  messages_cursor = messages_col.find(mongo_query).sort("timestamp", -1)
+  all_messages = await messages_cursor.to_list(length=1000)
+
+  # Filter by text search in decrypted content
+  matching_messages = []
+  query_lower = search_query.query.lower()
+
+  for msg_doc in all_messages:
+    decrypted_content = decrypt_text(msg_doc.get("content", ""))
+    if query_lower in decrypted_content.lower():
+      matching_messages.append(msg_doc)
+
+  # Server filter (if specified, check if message's channel belongs to server)
+  if search_query.server_id:
+    server_doc = await servers_col.find_one({"_id": search_query.server_id})
+    if server_doc:
+      # Get all channel IDs in this server
+      server_channel_ids = []
+      for cat in server_doc.get("categories", []):
+        for ch in cat.get("channels", []):
+          server_channel_ids.append(ch["id"])
+
+      # Filter messages to only those in server channels
+      matching_messages = [
+        msg for msg in matching_messages
+        if msg["channel_id"] in server_channel_ids
+      ]
+
+  # Apply pagination
+  total = len(matching_messages)
+  paginated_messages = matching_messages[search_query.offset:search_query.offset + search_query.limit]
+
+  # Build results with context
+  results = []
+  for msg_doc in paginated_messages:
+    # Find channel info
+    channel_name = "Unknown"
+    server_id = None
+    server_name = None
+
+    # Try to find in regular servers
+    server_doc = await servers_col.find_one({"categories.channels.id": msg_doc["channel_id"]})
+    if server_doc:
+      server_id = server_doc["_id"]
+      server_name = server_doc["name"]
+      for cat in server_doc.get("categories", []):
+        for ch in cat.get("channels", []):
+          if ch["id"] == msg_doc["channel_id"]:
+            channel_name = ch["name"]
+            break
+    else:
+      # Try DM channels
+      dm_doc = await dm_channels_col.find_one({"_id": msg_doc["channel_id"]})
+      if dm_doc:
+        channel_name = dm_doc.get("name", "Direct Message")
+
+    # Create highlight snippet
+    decrypted_content = decrypt_text(msg_doc.get("content", ""))
+    highlight = _create_highlight(decrypted_content, search_query.query)
+
+    # Build message object
+    message = Message(
+      id=msg_doc["_id"],
+      channel_id=msg_doc["channel_id"],
+      sender=Sender(**msg_doc["sender"]),
+      content=decrypted_content,
+      timestamp=msg_doc["timestamp"],
+      files=msg_doc.get("files", []),
+      thread_id=msg_doc.get("thread_id"),
+      reply_count=msg_doc.get("reply_count", 0),
+      edited_at=msg_doc.get("edited_at"),
+      is_deleted=msg_doc.get("is_deleted", False)
+    )
+
+    results.append(MessageSearchResult(
+      message=message,
+      server_id=server_id,
+      server_name=server_name,
+      channel_name=channel_name,
+      highlight=highlight
+    ))
+
+  return SearchMessagesResponse(
+    results=results,
+    total=total,
+    query=search_query.query
+  )
+
+
+def _create_highlight(content: str, query: str, context_chars: int = 100) -> str:
+  """Create highlighted snippet around search query"""
+  query_lower = query.lower()
+  content_lower = content.lower()
+
+  idx = content_lower.find(query_lower)
+  if idx == -1:
+    return content[:200]
+
+  start = max(0, idx - context_chars)
+  end = min(len(content), idx + len(query) + context_chars)
+
+  snippet = content[start:end]
+  if start > 0:
+    snippet = "..." + snippet
+  if end < len(content):
+    snippet = snippet + "..."
+
+  return snippet
+
+
+@fastapi_app.post("/search/files", response_model=SearchFilesResponse)
+async def search_files(
+    search_query: SearchQuery,
+    current_user: User = Depends(get_current_user)
+):
+  """파일 검색 (파일명 기반)"""
+  # Build MongoDB query for messages with files
+  mongo_query = {
+    "is_deleted": {"$ne": True},
+    "files": {"$exists": True, "$ne": []}
+  }
+
+  # Date range filter
+  if search_query.from_date or search_query.to_date:
+    date_query = {}
+    if search_query.from_date:
+      date_query["$gte"] = search_query.from_date
+    if search_query.to_date:
+      date_query["$lte"] = search_query.to_date
+    mongo_query["timestamp"] = date_query
+
+  # Channel filter
+  if search_query.channel_id:
+    mongo_query["channel_id"] = search_query.channel_id
+
+  # Get messages with files
+  messages_cursor = messages_col.find(mongo_query).sort("timestamp", -1)
+  all_messages = await messages_cursor.to_list(length=1000)
+
+  # Filter files by filename
+  matching_files = []
+  query_lower = search_query.query.lower()
+
+  for msg_doc in all_messages:
+    for file_attach in msg_doc.get("files", []):
+      if query_lower in file_attach.get("name", "").lower():
+        matching_files.append({
+          "file": file_attach,
+          "message": msg_doc
+        })
+
+  # Server filter
+  if search_query.server_id:
+    server_doc = await servers_col.find_one({"_id": search_query.server_id})
+    if server_doc:
+      server_channel_ids = []
+      for cat in server_doc.get("categories", []):
+        for ch in cat.get("channels", []):
+          server_channel_ids.append(ch["id"])
+
+      matching_files = [
+        item for item in matching_files
+        if item["message"]["channel_id"] in server_channel_ids
+      ]
+
+  # Apply pagination
+  total = len(matching_files)
+  paginated_files = matching_files[search_query.offset:search_query.offset + search_query.limit]
+
+  # Build results
+  results = []
+  for item in paginated_files:
+    msg_doc = item["message"]
+    file_attach = item["file"]
+
+    # Find channel info
+    channel_name = "Unknown"
+    server_id = None
+    server_name = None
+
+    server_doc = await servers_col.find_one({"categories.channels.id": msg_doc["channel_id"]})
+    if server_doc:
+      server_id = server_doc["_id"]
+      server_name = server_doc["name"]
+      for cat in server_doc.get("categories", []):
+        for ch in cat.get("channels", []):
+          if ch["id"] == msg_doc["channel_id"]:
+            channel_name = ch["name"]
+            break
+    else:
+      dm_doc = await dm_channels_col.find_one({"_id": msg_doc["channel_id"]})
+      if dm_doc:
+        channel_name = dm_doc.get("name", "Direct Message")
+
+    results.append(FileSearchResult(
+      file=FileAttachment(**file_attach),
+      message_id=msg_doc["_id"],
+      channel_id=msg_doc["channel_id"],
+      channel_name=channel_name,
+      server_id=server_id,
+      server_name=server_name,
+      sender=Sender(**msg_doc["sender"]),
+      timestamp=msg_doc["timestamp"]
+    ))
+
+  return SearchFilesResponse(
+    results=results,
+    total=total,
+    query=search_query.query
+  )
+
+
+# ========================================
+# 미읽음 & 알림 관리 API
+# ========================================
+
+@fastapi_app.post("/channels/{channel_id}/mark-read")
+async def mark_channel_as_read(
+    channel_id: str,
+    current_user: User = Depends(get_current_user)
+):
+  """채널을 읽음으로 표시"""
+  timestamp = _now()
+
+  # Upsert last read timestamp for this user-channel combination
+  await user_channel_reads_col.update_one(
+    {"user_id": current_user.id, "channel_id": channel_id},
+    {"$set": {"last_read_at": timestamp}},
+    upsert=True
+  )
+
+  return {"success": True, "channel_id": channel_id, "last_read_at": timestamp}
+
+
+@fastapi_app.get("/unreads", response_model=UnreadCountsResponse)
+async def get_unread_counts(
+    current_user: User = Depends(get_current_user)
+):
+  """전체 채널의 미읽음 카운트 조회"""
+  unreads = []
+
+  # Get all user's last read timestamps
+  reads_cursor = user_channel_reads_col.find({"user_id": current_user.id})
+  last_reads = {}
+  async for read_doc in reads_cursor:
+    last_reads[read_doc["channel_id"]] = read_doc["last_read_at"]
+
+  # Get all channels user has access to (from servers and DMs)
+  servers_cursor = servers_col.find({"members.id": current_user.id})
+  channel_ids = set()
+
+  async for server_doc in servers_cursor:
+    for cat in server_doc.get("categories", []):
+      for ch in cat.get("channels", []):
+        channel_ids.add(ch["id"])
+
+  # Add DM channels
+  dm_cursor = dm_channels_col.find({"participants": current_user.id})
+  async for dm_doc in dm_cursor:
+    channel_ids.add(dm_doc["_id"])
+
+  # Count unread messages for each channel
+  for channel_id in channel_ids:
+    last_read = last_reads.get(channel_id)
+
+    # Build query for messages newer than last read
+    msg_query = {
+      "channel_id": channel_id,
+      "is_deleted": {"$ne": True}
+    }
+
+    if last_read:
+      msg_query["timestamp"] = {"$gt": last_read}
+
+    # Count total unread
+    unread_count = await messages_col.count_documents(msg_query)
+
+    # Check if any are mentions
+    mention_query = msg_query.copy()
+    mention_query["content"] = {"$regex": f"@{current_user.username}", "$options": "i"}
+    has_mention = await messages_col.count_documents(mention_query) > 0
+
+    if unread_count > 0:
+      unreads.append(UnreadCount(
+        channel_id=channel_id,
+        count=unread_count,
+        has_mention=has_mention
+      ))
+
+  return UnreadCountsResponse(unreads=unreads)
+
+
+@fastapi_app.get("/notification-settings", response_model=NotificationSettings)
+async def get_notification_settings(
+    current_user: User = Depends(get_current_user)
+):
+  """알림 설정 조회"""
+  settings_doc = await notification_settings_col.find_one({"user_id": current_user.id})
+
+  if not settings_doc:
+    # Return default settings
+    return NotificationSettings(
+      user_id=current_user.id,
+      channels=[],
+      servers=[],
+      desktop_enabled=True,
+      sound_enabled=True
+    )
+
+  return NotificationSettings(**settings_doc)
+
+
+@fastapi_app.put("/notification-settings", response_model=NotificationSettings)
+async def update_notification_settings(
+    settings: NotificationSettings,
+    current_user: User = Depends(get_current_user)
+):
+  """알림 설정 업데이트"""
+  settings.user_id = current_user.id
+
+  await notification_settings_col.update_one(
+    {"user_id": current_user.id},
+    {"$set": settings.model_dump()},
+    upsert=True
+  )
+
+  return settings
+
+
+@fastapi_app.post("/channels/{channel_id}/notification-level")
+async def set_channel_notification_level(
+    channel_id: str,
+    level: str,  # "all" | "mentions" | "nothing"
+    current_user: User = Depends(get_current_user)
+):
+  """채널별 알림 레벨 설정"""
+  # Get current settings
+  settings_doc = await notification_settings_col.find_one({"user_id": current_user.id})
+
+  if not settings_doc:
+    settings_doc = {
+      "user_id": current_user.id,
+      "channels": [],
+      "servers": [],
+      "desktop_enabled": True,
+      "sound_enabled": True
+    }
+
+  # Update or add channel setting
+  channels = settings_doc.get("channels", [])
+  found = False
+  for ch_setting in channels:
+    if ch_setting["channel_id"] == channel_id:
+      ch_setting["level"] = level
+      found = True
+      break
+
+  if not found:
+    channels.append({"channel_id": channel_id, "level": level})
+
+  settings_doc["channels"] = channels
+
+  await notification_settings_col.update_one(
+    {"user_id": current_user.id},
+    {"$set": settings_doc},
+    upsert=True
+  )
+
+  return {"success": True, "channel_id": channel_id, "level": level}
+
+
+@fastapi_app.get("/mentions", response_model=MentionsResponse)
+async def get_my_mentions(
+    limit: int = 50,
+    offset: int = 0,
+    current_user: User = Depends(get_current_user)
+):
+  """내가 언급된 알림 목록 조회"""
+  # Query notifications where user was mentioned
+  query = {
+    "user_id": current_user.id,
+    "type": "mention",
+    "read": False
+  }
+
+  total = await notifications_col.count_documents(query)
+
+  notifications_cursor = notifications_col.find(query).sort("created_at", -1).skip(offset).limit(limit)
+
+  mentions = []
+  async for notif_doc in notifications_cursor:
+    mentions.append(Notification(
+      id=notif_doc["_id"],
+      user_id=notif_doc["user_id"],
+      type=notif_doc["type"],
+      message_id=notif_doc["message_id"],
+      channel_id=notif_doc["channel_id"],
+      content=notif_doc["content"],
+      trigger=notif_doc["trigger"],
+      read=notif_doc.get("read", False),
+      created_at=notif_doc["created_at"]
+    ))
+
+  return MentionsResponse(mentions=mentions, total=total)
+
+
+@fastapi_app.post("/notifications/{notification_id}/mark-read")
+async def mark_notification_as_read(
+    notification_id: str,
+    current_user: User = Depends(get_current_user)
+):
+  """알림을 읽음으로 표시"""
+  result = await notifications_col.update_one(
+    {"_id": notification_id, "user_id": current_user.id},
+    {"$set": {"read": True}}
+  )
+
+  if result.matched_count == 0:
+    raise HTTPException(status_code=404, detail="Notification not found")
+
+  return {"success": True}
+
+
+@fastapi_app.post("/notifications/mark-all-read")
+async def mark_all_notifications_as_read(
+    current_user: User = Depends(get_current_user)
+):
+  """모든 알림을 읽음으로 표시"""
+  await notifications_col.update_many(
+    {"user_id": current_user.id, "read": False},
+    {"$set": {"read": True}}
+  )
+
+  return {"success": True}
 
 
 # uvicorn entrypoint expects `app`

@@ -9,13 +9,15 @@
     "build": "electron-builder",
     "build:win": "electron-builder --win",
     "build:mac": "electron-builder --mac",
-    "build:linux": "electron-builder --linux"
+    "build:linux": "electron-builder --linux",
+    "pack": "electron-packager . WorkMessenger --platform=win32 --arch=x64 --out=dist --overwrite --icon=assets/icon.ico"
   },
   "author": "",
   "license": "MIT",
   "devDependencies": {
     "electron": "^39.2.4",
-    "electron-builder": "^24.9.1"
+    "electron-builder": "^24.9.1",
+    "electron-packager": "^17.1.2"
   },
   "dependencies": {
     "dotenv": "^16.3.1",
@@ -30,10 +32,15 @@
     "files": [
       "src/**/*",
       "assets/**/*",
-      "node_modules/**/*"
+      ".env",
+      "node_modules/**/*",
+      "!node_modules/**/{CHANGELOG.md,README.md,readme.md,changelog.md}"
     ],
     "win": {
-      "target": "nsis",
+      "target": [
+        "portable",
+        "zip"
+      ],
       "icon": "assets/icon.ico"
     },
     "mac": {

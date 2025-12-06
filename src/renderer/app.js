@@ -8,6 +8,10 @@ class WorkMessenger {
     this.currentServer = null;
     this.currentChannel = null;
     this.servers = [];
+    this.dmChannels = [];  // DM channels list
+    this.isDMView = false;  // Flag to track if viewing DMs
+    this.unreadCounts = {};  // { channel_id: { count: number, has_mention: boolean } }
+    this.notificationSettings = null;  // Notification settings from backend
     this.messages = {};
     this.pinnedMessages = {};
     this.reactions = {}; // 메시지 리액션 저장: { channelId: { messageId: { emoji: [userId, ...] } } }
@@ -28,6 +32,7 @@ class WorkMessenger {
     this.dndMode = false;
     this.draggedChannel = null;
     this.contextMenuTarget = null;
+    this.channelContextTarget = null;
 
     // 자동완성 상태
     this.autocomplete = {
@@ -243,6 +248,9 @@ class WorkMessenger {
       return;
     }
 
+    // 알림 설정 로드
+    await this.loadNotificationSettings();
+
     // 소켓 연결 (서버가 있을 경우)
     this.connectSocket();
 
@@ -293,6 +301,47 @@ class WorkMessenger {
       return response.json();
     }
     return null;
+  }
+
+  // ========================================
+  // 미읽음 관리 메서드
+  // ========================================
+
+  async fetchUnreadCounts() {
+    try {
+      const response = await this.apiRequest('/unreads');
+      if (response && response.unreads) {
+        this.unreadCounts = {};
+        response.unreads.forEach(item => {
+          this.unreadCounts[item.channel_id] = {
+            count: item.count,
+            has_mention: item.has_mention
+          };
+        });
+        this.renderChannelList();
+        this.renderServerList();
+      }
+    } catch (error) {
+      console.error('Failed to fetch unread counts:', error);
+    }
+  }
+
+  async markChannelAsRead(channelId) {
+    try {
+      await this.apiRequest(`/channels/${channelId}/mark-read`, {
+        method: 'POST'
+      });
+
+      // Clear unread count locally
+      if (this.unreadCounts[channelId]) {
+        delete this.unreadCounts[channelId];
+      }
+
+      this.renderChannelList();
+      this.renderServerList();
+    } catch (error) {
+      console.error('Failed to mark channel as read:', error);
+    }
   }
 
   // ========================================
@@ -622,6 +671,7 @@ class WorkMessenger {
     return {
       ...msg,
       sender,
+      timestamp: msg.timestamp, // 명시적으로 timestamp 보존
       time: msg.time || timeStr,
       sent: msg.sent !== undefined ? msg.sent : isMine
     };
@@ -669,6 +719,10 @@ class WorkMessenger {
     this.currentServer = this.servers[0];
     this.renderServerList();
     this.renderChannelList();
+
+    // Fetch unread counts
+    await this.fetchUnreadCounts();
+
     const firstChannel = this.currentServer.categories?.[0]?.channels?.[0];
     if (firstChannel) {
       await this.selectChannel(firstChannel);
@@ -892,9 +946,11 @@ class WorkMessenger {
     // 컨텍스트 메뉴
     const contextMenu = document.getElementById('message-context-menu');
     const serverMenu = document.getElementById('server-context-menu');
+    const channelMenu = document.getElementById('channel-context-menu');
     document.addEventListener('click', (e) => {
       contextMenu.style.display = 'none';
       if (serverMenu) serverMenu.style.display = 'none';
+      if (channelMenu) channelMenu.style.display = 'none';
     });
 
     contextMenu?.addEventListener('click', (e) => {
@@ -925,6 +981,19 @@ class WorkMessenger {
         }
       }
       serverMenu.style.display = 'none';
+    });
+
+    channelMenu?.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const button = e.target.closest('.context-menu-item');
+      if (!button) return;
+      const action = button.dataset.channelAction;
+      if (this.channelContextTarget) {
+        if (action === 'mark-read') {
+          await this.markChannelAsRead(this.channelContextTarget.id);
+        }
+      }
+      channelMenu.style.display = 'none';
     });
 
     // 이모티콘 리액션 피커
@@ -991,12 +1060,120 @@ class WorkMessenger {
       }
     });
 
+    // 채널 권한 설정 다이얼로그
+    const channelPermDialog = document.getElementById('channel-permission-dialog');
+    const channelPermClose = document.getElementById('channel-permission-close');
+    const channelPermCancel = document.getElementById('channel-permission-cancel');
+    const channelPermOk = document.getElementById('channel-permission-ok');
+
+    channelPermClose?.addEventListener('click', () => {
+      this.closeChannelPermissionDialog();
+    });
+
+    channelPermCancel?.addEventListener('click', () => {
+      this.closeChannelPermissionDialog();
+    });
+
+    channelPermOk?.addEventListener('click', () => {
+      this.confirmChannelPermissionDialog();
+    });
+
+    channelPermDialog?.addEventListener('click', (e) => {
+      if (e.target === channelPermDialog) {
+        this.closeChannelPermissionDialog();
+      }
+    });
+
+    // 전체 검색 모달
+    const btnGlobalSearch = document.getElementById('btn-global-search');
+    const globalSearchModal = document.getElementById('global-search-modal');
+    const globalSearchInput = document.getElementById('global-search-input');
+    const closeGlobalSearch = document.getElementById('close-global-search');
+    const searchTabs = document.querySelectorAll('.search-tab');
+
+    btnGlobalSearch?.addEventListener('click', () => {
+      this.showGlobalSearch();
+    });
+
+    // 멘션 모달
+    const btnMentions = document.getElementById('btn-mentions');
+    btnMentions?.addEventListener('click', () => {
+      this.showMentionsModal();
+    });
+
+    // 알림 설정 모달
+    const btnNotificationSettings = document.getElementById('btn-notification-settings');
+    btnNotificationSettings?.addEventListener('click', () => {
+      this.showNotificationSettingsModal();
+    });
+
+    closeGlobalSearch?.addEventListener('click', () => {
+      this.closeGlobalSearch();
+    });
+
+    globalSearchModal?.addEventListener('click', (e) => {
+      if (e.target === globalSearchModal) {
+        this.closeGlobalSearch();
+      }
+    });
+
+    globalSearchInput?.addEventListener('input', () => {
+      // Debounce search
+      clearTimeout(this.searchTimeout);
+      this.searchTimeout = setTimeout(() => {
+        this.performSearch();
+      }, 500);
+    });
+
+    globalSearchInput?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        this.performSearch();
+      }
+    });
+
+    // Search filter inputs
+    document.getElementById('search-author')?.addEventListener('change', () => {
+      if (globalSearchInput.value.trim()) {
+        this.performSearch();
+      }
+    });
+
+    document.getElementById('search-from-date')?.addEventListener('change', () => {
+      if (globalSearchInput.value.trim()) {
+        this.performSearch();
+      }
+    });
+
+    document.getElementById('search-to-date')?.addEventListener('change', () => {
+      if (globalSearchInput.value.trim()) {
+        this.performSearch();
+      }
+    });
+
+    document.getElementById('search-my-messages')?.addEventListener('change', () => {
+      if (globalSearchInput.value.trim()) {
+        this.performSearch();
+      }
+    });
+
+    // Search tabs
+    searchTabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        searchTabs.forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        if (globalSearchInput.value.trim()) {
+          this.performSearch();
+        }
+      });
+    });
+
     // 키보드 단축키
     document.addEventListener('keydown', (e) => {
-      // Ctrl/Cmd + K: 검색
+      // Ctrl/Cmd + K: 전체 검색
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
         e.preventDefault();
-        searchInput?.focus();
+        this.showGlobalSearch();
       }
       // Escape: 모달 닫기
       if (e.key === 'Escape') {
@@ -1041,6 +1218,12 @@ class WorkMessenger {
     const btnMyPage = document.getElementById('btn-my-page');
     btnMyPage?.addEventListener('click', () => {
       this.openMyPageModal();
+    });
+
+    // DM 버튼
+    const btnDM = document.getElementById('btn-dm');
+    btnDM?.addEventListener('click', () => {
+      this.showDMView();
     });
 
     // 화이트보드 버튼
@@ -1136,6 +1319,547 @@ class WorkMessenger {
     }
     const overlay = document.getElementById('input-dialog-overlay');
     overlay.style.display = 'none';
+  }
+
+  showChannelPermissionDialog(title, initialData = {}) {
+    return new Promise((resolve) => {
+      const overlay = document.getElementById('channel-permission-dialog');
+      const titleElement = document.getElementById('channel-permission-title');
+      const nameInput = document.getElementById('channel-perm-name');
+      const privateCheckbox = document.getElementById('channel-perm-private');
+      const rolesInput = document.getElementById('channel-perm-roles');
+      const membersInput = document.getElementById('channel-perm-members');
+      const postSelect = document.getElementById('channel-perm-post');
+      const accessGroup = document.getElementById('channel-perm-access-group');
+      const membersGroup = document.getElementById('channel-perm-members-group');
+
+      // Set initial values
+      titleElement.textContent = title;
+      nameInput.value = initialData.name || '';
+      privateCheckbox.checked = initialData.is_private || false;
+      rolesInput.value = (initialData.allowed_roles || []).join(', ');
+      membersInput.value = (initialData.allowed_members || []).join(', ');
+      postSelect.value = initialData.post_permission || 'everyone';
+
+      // Show/hide access groups based on private checkbox
+      const toggleAccessGroups = () => {
+        const isPrivate = privateCheckbox.checked;
+        accessGroup.style.display = isPrivate ? 'block' : 'none';
+        membersGroup.style.display = isPrivate ? 'block' : 'none';
+      };
+      toggleAccessGroups();
+
+      // Add checkbox listener
+      privateCheckbox.addEventListener('change', toggleAccessGroups);
+
+      overlay.style.display = 'flex';
+      nameInput.focus();
+      nameInput.select();
+
+      this.channelPermissionCallback = (result) => {
+        overlay.style.display = 'none';
+        privateCheckbox.removeEventListener('change', toggleAccessGroups);
+        this.channelPermissionCallback = null;
+        resolve(result);
+      };
+    });
+  }
+
+  closeChannelPermissionDialog() {
+    if (this.channelPermissionCallback) {
+      this.channelPermissionCallback(null);
+    }
+    const overlay = document.getElementById('channel-permission-dialog');
+    overlay.style.display = 'none';
+  }
+
+  confirmChannelPermissionDialog() {
+    const nameInput = document.getElementById('channel-perm-name');
+    const privateCheckbox = document.getElementById('channel-perm-private');
+    const rolesInput = document.getElementById('channel-perm-roles');
+    const membersInput = document.getElementById('channel-perm-members');
+    const postSelect = document.getElementById('channel-perm-post');
+
+    const name = nameInput.value.trim();
+    if (!name) {
+      alert('채널 이름을 입력하세요.');
+      return;
+    }
+
+    const is_private = privateCheckbox.checked;
+    const allowed_roles = rolesInput.value
+      .split(',')
+      .map(r => r.trim())
+      .filter(r => r);
+    const allowed_members = membersInput.value
+      .split(',')
+      .map(m => m.trim())
+      .filter(m => m);
+    const post_permission = postSelect.value;
+
+    if (this.channelPermissionCallback) {
+      this.channelPermissionCallback({
+        name,
+        is_private,
+        allowed_roles,
+        allowed_members,
+        post_permission
+      });
+    }
+    const overlay = document.getElementById('channel-permission-dialog');
+    overlay.style.display = 'none';
+  }
+
+  // ========================================
+  // 검색 기능
+  // ========================================
+
+  showGlobalSearch() {
+    const modal = document.getElementById('global-search-modal');
+    const input = document.getElementById('global-search-input');
+    modal.style.display = 'flex';
+    input.focus();
+    input.value = '';
+    this.clearSearchResults();
+  }
+
+  closeGlobalSearch() {
+    const modal = document.getElementById('global-search-modal');
+    modal.style.display = 'none';
+    this.clearSearchResults();
+  }
+
+  async showMentionsModal() {
+    const modal = document.getElementById('mentions-modal');
+    modal.style.display = 'flex';
+    await this.fetchMentions();
+  }
+
+  closeMentionsModal() {
+    const modal = document.getElementById('mentions-modal');
+    modal.style.display = 'none';
+  }
+
+  async fetchMentions() {
+    const listContainer = document.getElementById('mentions-list');
+
+    // Show loading
+    listContainer.innerHTML = '<div class="search-loading">멘션을 불러오는 중...</div>';
+
+    if (!this.apiBase) {
+      listContainer.innerHTML = '<div class="search-no-results">백엔드 서버에 연결되지 않았습니다.</div>';
+      return;
+    }
+
+    try {
+      const response = await this.apiRequest('/mentions?limit=50&offset=0');
+
+      if (!response.mentions || response.mentions.length === 0) {
+        listContainer.innerHTML = `
+          <div class="search-placeholder">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M12 8v4M12 16h.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            <p>멘션이 없습니다</p>
+          </div>
+        `;
+        return;
+      }
+
+      listContainer.innerHTML = '';
+
+      response.mentions.forEach(mention => {
+        const item = document.createElement('div');
+        item.className = 'mention-item';
+
+        const timeStr = new Date(mention.created_at).toLocaleString('ko-KR', {
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+
+        item.innerHTML = `
+          <div class="mention-header">
+            <span class="mention-trigger">@${mention.trigger}</span>
+            <span class="mention-time">${timeStr}</span>
+          </div>
+          <div class="mention-content">${this.escapeHtml(mention.content)}</div>
+          <button class="mention-jump-btn">메시지로 이동</button>
+        `;
+
+        const jumpBtn = item.querySelector('.mention-jump-btn');
+        jumpBtn.addEventListener('click', async () => {
+          await this.jumpToMention(mention);
+        });
+
+        listContainer.appendChild(item);
+      });
+    } catch (error) {
+      console.error('Failed to fetch mentions:', error);
+      listContainer.innerHTML = '<div class="search-no-results">멘션을 불러오는 중 오류가 발생했습니다.</div>';
+    }
+  }
+
+  async jumpToMention(mention) {
+    // Close mentions modal
+    this.closeMentionsModal();
+
+    // Find the server containing the channel
+    let targetServer = null;
+    for (const server of this.servers) {
+      for (const category of server.categories) {
+        const channel = category.channels.find(ch => ch.id === mention.channel_id);
+        if (channel) {
+          targetServer = server;
+          await this.selectServer(server);
+          await this.selectChannel(channel);
+
+          // Mark this mention as read
+          try {
+            await this.apiRequest(`/notifications/${mention.id}/mark-read`, {
+              method: 'POST'
+            });
+          } catch (error) {
+            console.error('Failed to mark mention as read:', error);
+          }
+
+          return;
+        }
+      }
+    }
+
+    alert('해당 채널을 찾을 수 없습니다.');
+  }
+
+  async showNotificationSettingsModal() {
+    const modal = document.getElementById('notification-settings-modal');
+    modal.style.display = 'flex';
+    await this.loadNotificationSettings();
+  }
+
+  closeNotificationSettingsModal() {
+    const modal = document.getElementById('notification-settings-modal');
+    modal.style.display = 'none';
+  }
+
+  async loadNotificationSettings() {
+    if (!this.apiBase) return;
+
+    try {
+      const settings = await this.apiRequest('/notification-settings');
+      this.notificationSettings = settings;  // Store settings
+      this.renderNotificationSettings(settings);
+    } catch (error) {
+      console.error('Failed to load notification settings:', error);
+    }
+  }
+
+  renderNotificationSettings(settings) {
+    // Render server notifications
+    const serverList = document.getElementById('server-notification-list');
+    serverList.innerHTML = '';
+
+    this.servers.forEach(server => {
+      const serverSetting = settings.servers?.find(s => s.server_id === server.id);
+      const isMuted = serverSetting?.muted || false;
+
+      const item = document.createElement('div');
+      item.className = 'notification-item';
+      item.innerHTML = `
+        <div class="notification-item-name">${server.name}</div>
+        <label class="switch">
+          <input type="checkbox" ${isMuted ? '' : 'checked'} data-server-id="${server.id}">
+          <span class="slider"></span>
+        </label>
+        <span class="notification-item-label">${isMuted ? '음소거' : '켜짐'}</span>
+      `;
+
+      const checkbox = item.querySelector('input');
+      checkbox.addEventListener('change', async (e) => {
+        const muted = !e.target.checked;
+        await this.updateServerNotificationLevel(server.id, muted);
+        item.querySelector('.notification-item-label').textContent = muted ? '음소거' : '켜짐';
+      });
+
+      serverList.appendChild(item);
+    });
+
+    // Render channel notifications
+    const channelList = document.getElementById('channel-notification-list');
+    channelList.innerHTML = '';
+
+    this.servers.forEach(server => {
+      server.categories.forEach(category => {
+        category.channels.forEach(channel => {
+          const channelSetting = settings.channels?.find(c => c.channel_id === channel.id);
+          const level = channelSetting?.level || 'all_messages';
+
+          const item = document.createElement('div');
+          item.className = 'notification-item';
+          item.innerHTML = `
+            <div class="notification-item-name">
+              <span class="notification-server-tag">${server.name}</span>
+              # ${channel.name}
+            </div>
+            <select class="notification-level-select" data-channel-id="${channel.id}">
+              <option value="all_messages" ${level === 'all_messages' ? 'selected' : ''}>모든 메시지</option>
+              <option value="mentions_only" ${level === 'mentions_only' ? 'selected' : ''}>멘션만</option>
+              <option value="muted" ${level === 'muted' ? 'selected' : ''}>음소거</option>
+            </select>
+          `;
+
+          const select = item.querySelector('select');
+          select.addEventListener('change', async (e) => {
+            await this.updateChannelNotificationLevel(channel.id, e.target.value);
+          });
+
+          channelList.appendChild(item);
+        });
+      });
+    });
+  }
+
+  async updateServerNotificationLevel(serverId, muted) {
+    if (!this.apiBase) return;
+
+    try {
+      // Get current settings first
+      const settings = await this.apiRequest('/notification-settings');
+
+      // Update server settings
+      const serverSettings = settings.servers || [];
+      const existingIndex = serverSettings.findIndex(s => s.server_id === serverId);
+
+      if (existingIndex >= 0) {
+        serverSettings[existingIndex].muted = muted;
+      } else {
+        serverSettings.push({ server_id: serverId, muted });
+      }
+
+      // Save settings
+      await this.apiRequest('/notification-settings', {
+        method: 'PUT',
+        body: JSON.stringify({
+          channels: settings.channels || [],
+          servers: serverSettings,
+          desktop_enabled: settings.desktop_enabled,
+          sound_enabled: settings.sound_enabled
+        })
+      });
+    } catch (error) {
+      console.error('Failed to update server notification level:', error);
+    }
+  }
+
+  async updateChannelNotificationLevel(channelId, level) {
+    if (!this.apiBase) return;
+
+    try {
+      await this.apiRequest(`/channels/${channelId}/notification-level`, {
+        method: 'POST',
+        body: JSON.stringify({ level })
+      });
+    } catch (error) {
+      console.error('Failed to update channel notification level:', error);
+    }
+  }
+
+  clearSearchResults() {
+    const resultsContainer = document.getElementById('search-results');
+    resultsContainer.innerHTML = `
+      <div class="search-placeholder">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
+          <circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <p>검색어를 입력하여 메시지를 찾아보세요</p>
+      </div>
+    `;
+  }
+
+  async performSearch() {
+    const query = document.getElementById('global-search-input').value.trim();
+    if (!query || query.length < 2) {
+      this.clearSearchResults();
+      return;
+    }
+
+    const author = document.getElementById('search-author').value.trim();
+    const fromDate = document.getElementById('search-from-date').value;
+    const toDate = document.getElementById('search-to-date').value;
+    const myMessagesOnly = document.getElementById('search-my-messages').checked;
+    const activeTab = document.querySelector('.search-tab.active').dataset.tab;
+
+    // Show loading
+    const resultsContainer = document.getElementById('search-results');
+    resultsContainer.innerHTML = '<div class="search-loading">검색 중...</div>';
+
+    if (!this.apiBase) {
+      resultsContainer.innerHTML = '<div class="search-no-results">백엔드 서버에 연결되지 않았습니다.</div>';
+      return;
+    }
+
+    try {
+      const searchBody = {
+        query,
+        limit: 50,
+        offset: 0
+      };
+
+      if (author) searchBody.author = author;
+      if (fromDate) searchBody.from_date = new Date(fromDate).toISOString();
+      if (toDate) searchBody.to_date = new Date(toDate).toISOString();
+      if (myMessagesOnly) searchBody.my_messages_only = true;
+      if (this.currentServer) searchBody.server_id = this.currentServer.id;
+      if (this.currentChannel && !myMessagesOnly) searchBody.channel_id = this.currentChannel.id;
+
+      const endpoint = activeTab === 'messages' ? '/search/messages' : '/search/files';
+      const results = await this.apiRequest(endpoint, {
+        method: 'POST',
+        body: JSON.stringify(searchBody)
+      });
+
+      if (activeTab === 'messages') {
+        this.renderMessageSearchResults(results);
+      } else {
+        this.renderFileSearchResults(results);
+      }
+    } catch (error) {
+      console.error('Search failed:', error);
+      resultsContainer.innerHTML = '<div class="search-no-results">검색 중 오류가 발생했습니다.</div>';
+    }
+  }
+
+  renderMessageSearchResults(results) {
+    const resultsContainer = document.getElementById('search-results');
+
+    if (!results.results || results.results.length === 0) {
+      resultsContainer.innerHTML = '<div class="search-no-results">검색 결과가 없습니다.</div>';
+      return;
+    }
+
+    resultsContainer.innerHTML = '';
+
+    results.results.forEach(result => {
+      const item = document.createElement('div');
+      item.className = 'search-result-item';
+
+      const timeStr = new Date(result.message.timestamp).toLocaleString('ko-KR', {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+
+      item.innerHTML = `
+        <div class="search-result-header">
+          <div class="search-result-avatar">${result.message.sender.avatar || result.message.sender.name[0]}</div>
+          <span class="search-result-author">${result.message.sender.name}</span>
+          <span class="search-result-time">${timeStr}</span>
+        </div>
+        <div class="search-result-location">
+          ${result.server_name ? `<span>${result.server_name}</span> > ` : ''}${result.channel_name}
+        </div>
+        <div class="search-result-content">${this.escapeHtml(result.highlight)}</div>
+      `;
+
+      item.addEventListener('click', () => {
+        this.jumpToMessage(result);
+      });
+
+      resultsContainer.appendChild(item);
+    });
+  }
+
+  renderFileSearchResults(results) {
+    const resultsContainer = document.getElementById('search-results');
+
+    if (!results.results || results.results.length === 0) {
+      resultsContainer.innerHTML = '<div class="search-no-results">검색 결과가 없습니다.</div>';
+      return;
+    }
+
+    resultsContainer.innerHTML = '';
+
+    results.results.forEach(result => {
+      const item = document.createElement('div');
+      item.className = 'search-result-item';
+
+      const timeStr = new Date(result.timestamp).toLocaleString('ko-KR', {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+
+      item.innerHTML = `
+        <div class="search-result-header">
+          <div class="search-result-avatar">${result.sender.avatar || result.sender.name[0]}</div>
+          <span class="search-result-author">${result.sender.name}</span>
+          <span class="search-result-time">${timeStr}</span>
+        </div>
+        <div class="search-result-location">
+          ${result.server_name ? `<span>${result.server_name}</span> > ` : ''}${result.channel_name}
+        </div>
+        <div class="search-result-content">
+          📎 ${this.escapeHtml(result.file.name)} (${this.formatFileSize(result.file.size)})
+        </div>
+      `;
+
+      item.addEventListener('click', () => {
+        this.jumpToFileMessage(result);
+      });
+
+      resultsContainer.appendChild(item);
+    });
+  }
+
+  async jumpToMessage(searchResult) {
+    // Find and select the server
+    const serverId = searchResult.server_id;
+    const channelId = searchResult.message.channel_id;
+
+    if (serverId) {
+      const server = this.servers.find(s => s.id === serverId);
+      if (server) {
+        await this.selectServer(server);
+
+        // Find and select the channel
+        for (const category of server.categories) {
+          const channel = category.channels.find(ch => ch.id === channelId);
+          if (channel) {
+            await this.selectChannel(channel);
+
+            // Close search modal
+            this.closeGlobalSearch();
+
+            // Scroll to message (simplified - in production, implement proper scroll-to)
+            // For now, just load the channel which will show recent messages
+            break;
+          }
+        }
+      }
+    } else {
+      // DM channel
+      const dmChannel = this.dmChannels.find(dm => dm.id === channelId);
+      if (dmChannel) {
+        await this.showDMView();
+        await this.selectChannel(dmChannel);
+        this.closeGlobalSearch();
+      }
+    }
+  }
+
+  async jumpToFileMessage(searchResult) {
+    // Similar to jumpToMessage, but for files
+    await this.jumpToMessage({
+      server_id: searchResult.server_id,
+      message: {
+        channel_id: searchResult.channel_id
+      }
+    });
   }
 
   loadDemoData() {
@@ -1369,15 +2093,133 @@ class WorkMessenger {
     // 채널 목록 렌더링
     this.renderChannelList();
 
-    // 채팅 영역 빈 상태로
-    document.getElementById('messages-and-members').style.display = 'flex';
-    document.getElementById('empty-state').style.display = 'flex';
-    document.getElementById('chat-header').style.display = 'none';
-    document.getElementById('messages-container').style.display = 'none';
-    document.getElementById('input-area').style.display = 'none';
+    // 첫 번째 채널 자동 선택
+    const firstChannel = server.categories?.[0]?.channels?.[0];
+    if (firstChannel) {
+      this.selectChannel(firstChannel);
+    } else {
+      // 채널이 없으면 빈 상태로
+      document.getElementById('messages-and-members').style.display = 'flex';
+      document.getElementById('empty-state').style.display = 'flex';
+      document.getElementById('chat-header').style.display = 'none';
+      document.getElementById('messages-container').style.display = 'none';
+      document.getElementById('input-area').style.display = 'none';
+    }
 
     // 멤버 패널 표시
     this.renderMembers();
+  }
+
+  async showDMView() {
+    this.isDMView = true;
+    this.currentServer = null;
+    this.currentChannel = null;
+
+    // Update sidebar active state
+    document.querySelectorAll('.server-item').forEach(item => {
+      item.classList.remove('active');
+    });
+    document.getElementById('btn-dm')?.classList.add('active');
+
+    // Update header
+    document.getElementById('server-name').textContent = '다이렉트 메시지';
+
+    // Hide server-specific buttons
+    document.getElementById('btn-new-category').style.display = 'none';
+    document.getElementById('btn-new-channel').style.display = 'none';
+
+    // Load and render DM channels
+    await this.loadDMChannels();
+    this.renderDMList();
+
+    // Hide chat area initially
+    document.getElementById('messages-and-members').style.display = 'none';
+  }
+
+  async loadDMChannels() {
+    if (!this.apiBase) return;
+
+    try {
+      const dmChannels = await this.apiRequest('/dm');
+      this.dmChannels = dmChannels || [];
+    } catch (error) {
+      console.error('Failed to load DM channels:', error);
+      this.dmChannels = [];
+    }
+  }
+
+  renderDMList() {
+    const container = document.getElementById('channels-container');
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    // Add "New DM" button
+    const newDMBtn = document.createElement('button');
+    newDMBtn.className = 'channel-item new-dm-btn';
+    newDMBtn.style.cssText = 'background: var(--accent); color: white; margin-bottom: 12px; justify-content: center; gap: 8px;';
+    newDMBtn.innerHTML = `
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+        <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <span>새 DM</span>
+    `;
+    newDMBtn.addEventListener('click', () => this.createNewDM());
+    container.appendChild(newDMBtn);
+
+    // Render DM channels
+    if (this.dmChannels.length === 0) {
+      const empty = document.createElement('div');
+      empty.style.cssText = 'padding: 20px; text-align: center; color: var(--text-secondary); font-size: 14px;';
+      empty.textContent = 'DM이 없습니다. 새 DM을 시작하세요!';
+      container.appendChild(empty);
+      return;
+    }
+
+    this.dmChannels.forEach(dm => {
+      const item = document.createElement('div');
+      item.className = `channel-item${this.currentChannel?.id === dm.id ? ' active' : ''}`;
+      item.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" stroke-width="2"/>
+        </svg>
+        <span class="channel-name">${dm.name}</span>
+      `;
+      item.addEventListener('click', () => this.selectChannel(dm));
+      container.appendChild(item);
+    });
+  }
+
+  async createNewDM() {
+    const userId = await this.showInputDialog('DM을 보낼 사용자 ID를 입력하세요:');
+    if (!userId || !userId.trim()) return;
+
+    if (!this.apiBase) {
+      alert('백엔드 서버 URL이 설정되지 않았습니다.');
+      return;
+    }
+
+    try {
+      const dmChannel = await this.apiRequest('/dm', {
+        method: 'POST',
+        body: JSON.stringify({
+          participants: [userId.trim()]
+        })
+      });
+
+      if (dmChannel) {
+        // Add to DM list if not already there
+        const exists = this.dmChannels.find(dm => dm.id === dmChannel.id);
+        if (!exists) {
+          this.dmChannels.push(dmChannel);
+        }
+        this.renderDMList();
+        this.selectChannel(dmChannel);
+      }
+    } catch (error) {
+      console.error('Failed to create DM:', error);
+      alert('DM 생성에 실패했습니다. 사용자 ID를 확인하세요.');
+    }
   }
 
   async createNewServer() {
@@ -1412,6 +2254,25 @@ class WorkMessenger {
     if (!menu) return;
 
     this.serverContextTarget = server;
+    menu.style.display = 'block';
+    menu.style.left = `${e.clientX}px`;
+    menu.style.top = `${e.clientY}px`;
+
+    const rect = menu.getBoundingClientRect();
+    if (rect.right > window.innerWidth) {
+      menu.style.left = `${e.clientX - rect.width}px`;
+    }
+    if (rect.bottom > window.innerHeight) {
+      menu.style.top = `${e.clientY - rect.height}px`;
+    }
+  }
+
+  async showChannelContextMenu(e, channel) {
+    e.preventDefault();
+    const menu = document.getElementById('channel-context-menu');
+    if (!menu) return;
+
+    this.channelContextTarget = channel;
     menu.style.display = 'block';
     menu.style.left = `${e.clientX}px`;
     menu.style.top = `${e.clientY}px`;
@@ -1553,7 +2414,11 @@ class WorkMessenger {
 
   createChannelElement(channel, category) {
     const div = document.createElement('div');
-    div.className = `channel-item${this.currentChannel?.id === channel.id ? ' active' : ''}${channel.unread > 0 ? ' unread' : ''}`;
+    const unreadData = this.unreadCounts[channel.id];
+    const hasUnread = unreadData && unreadData.count > 0;
+    const hasMention = unreadData && unreadData.has_mention;
+
+    div.className = `channel-item${this.currentChannel?.id === channel.id ? ' active' : ''}${hasUnread ? ' unread' : ''}`;
     div.dataset.channelId = channel.id;
     div.draggable = true;
 
@@ -1561,8 +2426,13 @@ class WorkMessenger {
       <svg class="channel-icon" width="18" height="18" viewBox="0 0 24 24" fill="none">
         <path d="M4 9h16M4 15h16M10 3L8 21M16 3l-2 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
+      ${channel.is_private ? `<svg class="channel-lock-icon" width="14" height="14" viewBox="0 0 24 24" fill="none">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M7 11V7a5 5 0 0 1 10 0v4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>` : ''}
       <span class="channel-name">${channel.name}</span>
-      ${channel.unread > 0 ? `<div class="channel-badge">${channel.unread}</div>` : ''}
+      ${hasMention ? `<span class="mention-indicator" title="멘션이 있습니다">@</span>` : ''}
+      ${hasUnread ? `<div class="channel-badge">${unreadData.count}</div>` : ''}
       <div class="channel-actions">
         <button class="channel-action-btn" title="채널 편집">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
@@ -1580,6 +2450,12 @@ class WorkMessenger {
 
     // 채널 선택
     div.addEventListener('click', () => this.selectChannel(channel));
+
+    // 채널 컨텍스트 메뉴 (우클릭)
+    div.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      this.showChannelContextMenu(e, channel);
+    });
 
     // 채널 편집
     const editBtn = div.querySelectorAll('.channel-action-btn')[0];
@@ -1637,10 +2513,8 @@ class WorkMessenger {
       item.classList.toggle('active', item.dataset.channelId === channel.id);
     });
 
-    // 읽지 않은 메시지 초기화
-    channel.unread = 0;
-    this.renderChannelList();
-    this.renderServerList();
+    // 읽지 않은 메시지 초기화 - mark as read
+    await this.markChannelAsRead(channel.id);
 
     // 빈 상태 숨기기
     document.getElementById('messages-and-members').style.display = 'flex';
@@ -1850,14 +2724,14 @@ class WorkMessenger {
   async createNewChannel() {
     if (!this.currentServer) return;
 
-    const name = await this.showInputDialog('새 채널 이름:');
-    if (!name) return;
-
     // 카테고리 선택 (첫 번째 카테고리에 추가)
     if (this.currentServer.categories.length === 0) {
       alert('카테고리가 없습니다. 먼저 카테고리를 생성하세요.');
       return;
     }
+
+    const channelData = await this.showChannelPermissionDialog('새 채널 만들기');
+    if (!channelData) return;
 
     const category = this.currentServer.categories[0];
 
@@ -1869,7 +2743,14 @@ class WorkMessenger {
     try {
       const created = await this.apiRequest(`/servers/${this.currentServer.id}/categories/${category.id}/channels`, {
         method: 'POST',
-        body: JSON.stringify({ name, type: 'text' })
+        body: JSON.stringify({
+          name: channelData.name,
+          type: 'text',
+          is_private: channelData.is_private,
+          allowed_roles: channelData.allowed_roles,
+          allowed_members: channelData.allowed_members,
+          post_permission: channelData.post_permission
+        })
       });
       if (created) {
         category.channels.push(created);
@@ -1884,8 +2765,15 @@ class WorkMessenger {
   }
 
   async editChannel(channel) {
-    const name = await this.showInputDialog('채널 이름 변경:', channel.name);
-    if (!name || name === channel.name) return;
+    const channelData = await this.showChannelPermissionDialog('채널 설정 변경', {
+      name: channel.name,
+      is_private: channel.is_private || false,
+      allowed_roles: channel.allowed_roles || [],
+      allowed_members: channel.allowed_members || [],
+      post_permission: channel.post_permission || 'everyone'
+    });
+
+    if (!channelData) return;
 
     const foundCategory = this.currentServer?.categories?.find(cat =>
       cat.channels.some(c => c.id === channel.id)
@@ -1896,14 +2784,26 @@ class WorkMessenger {
       try {
         await this.apiRequest(`/servers/${this.currentServer.id}/categories/${categoryId}/channels/${channel.id}`, {
           method: 'PATCH',
-          body: JSON.stringify({ name })
+          body: JSON.stringify({
+            name: channelData.name,
+            is_private: channelData.is_private,
+            allowed_roles: channelData.allowed_roles,
+            allowed_members: channelData.allowed_members,
+            post_permission: channelData.post_permission
+          })
         });
       } catch (error) {
         console.error('채널 수정 실패, 로컬로 진행합니다:', error);
       }
     }
 
-    channel.name = name;
+    // Update local channel object
+    channel.name = channelData.name;
+    channel.is_private = channelData.is_private;
+    channel.allowed_roles = channelData.allowed_roles;
+    channel.allowed_members = channelData.allowed_members;
+    channel.post_permission = channelData.post_permission;
+
     this.renderChannelList();
 
     if (this.currentChannel?.id === channel.id) {
@@ -2143,14 +3043,20 @@ class WorkMessenger {
       // 닉네임이 있으면 닉네임 표시, 없으면 기본 이름 표시
       const displayName = this.getDisplayName(msg.sender.id) || msg.sender.name;
 
+      // 수정/삭제 표시
+      const isEdited = msg.edited_at ? '<span class="message-edited">(edited)</span>' : '';
+      const isDeleted = msg.is_deleted;
+      const messageClass = isDeleted ? 'message-bubble deleted' : 'message-bubble';
+      const messageContent = isDeleted ? msg.content : this.formatMessage(msg.content);
+
       msgEl.innerHTML = `
         <div class="avatar">${msg.sender.avatar}</div>
         <div class="message-content">
           <div class="message-header">
             <span class="message-sender">${displayName}</span>
-            <span class="message-time">${msg.time}</span>
+            <span class="message-time">${msg.time}${isEdited}</span>
           </div>
-          ${msg.content ? `<div class="message-bubble">${this.formatMessage(msg.content)}</div>` : ''}
+          ${msg.content ? `<div class="${messageClass}">${messageContent}</div>` : ''}
           ${specialHTML}
           ${filesHTML}
           ${this.renderMessageReactions(msg.id, channelId)}
@@ -2446,11 +3352,13 @@ class WorkMessenger {
       }
     }
     const socketConnected = window.electronAPI?.isSocketConnected?.();
+    const currentChannelId = this.currentChannel.id;
 
     if (socketConnected) {
+      const currentUser = this.auth?.currentUser || this.user;
       const localMessage = {
         id: Date.now(),
-        sender: this.user,
+        sender: currentUser,
         content,
         sent: true,
         time: this.getCurrentTimeString(),
@@ -2464,21 +3372,38 @@ class WorkMessenger {
       };
 
       // 로컬 즉시 반영
-      this.addLocalMessage(this.currentChannel.id, localMessage);
+      this.addLocalMessage(currentChannelId, localMessage);
 
       // Socket.IO를 통해 서버로 전송 (서버가 DB 저장 후 다른 클라이언트에 브로드캐스트)
       window.electronAPI.emitSocketEvent('message', {
-        channelId: this.currentChannel.id,
+        channelId: currentChannelId,
         message: {
           content: content,
           sender: {
-            id: this.user.id,
-            name: this.user.name,
-            avatar: this.user.avatar
+            id: currentUser.id,
+            name: currentUser.name,
+            avatar: currentUser.avatar
           },
           files: localMessage.files
         }
       });
+
+      // 메시지 전송 후 1초 뒤에 백엔드에서 실제 ID를 받아오기 위해 다시 fetch
+      setTimeout(async () => {
+        if (this.apiBase) {
+          try {
+            const data = await this.apiRequest(`/channels/${currentChannelId}/messages`);
+            if (Array.isArray(data)) {
+              this.messages[currentChannelId] = data.map(msg => this.normalizeMessage(msg));
+              if (this.currentChannel?.id === currentChannelId) {
+                this.renderMessages(currentChannelId);
+              }
+            }
+          } catch (error) {
+            console.error('메시지 재로드 실패:', error);
+          }
+        }
+      }, 1000);
 
       this.resetInput();
       return;
@@ -2970,6 +3895,24 @@ class WorkMessenger {
     };
     document.getElementById('profile-status').textContent = statusMap[member.status] || member.status;
 
+    // 현재 사용자의 역할 확인 (owner, admin만 역할 변경 가능)
+    const currentUserId = this.auth?.currentUser?.id || this.user?.id;
+    const currentUserMember = members.find(m => m.id === currentUserId);
+    const canChangeRole = currentUserMember && ['owner', 'admin'].includes(currentUserMember.role) && userId !== currentUserId;
+
+    // 역할 변경 UI 표시/숨김
+    const roleActions = document.getElementById('profile-role-actions');
+    const roleSelect = document.getElementById('profile-role-select');
+
+    if (canChangeRole) {
+      roleActions.style.display = 'flex';
+      roleSelect.value = member.role;
+      // 선택된 멤버 ID 저장 (역할 변경 시 사용)
+      roleActions.dataset.userId = userId;
+    } else {
+      roleActions.style.display = 'none';
+    }
+
     // 모달 표시
     modal.style.display = 'flex';
 
@@ -2990,9 +3933,88 @@ class WorkMessenger {
     };
   }
 
-  showNotification(title, body) {
+  async updateMemberRole() {
+    const roleActions = document.getElementById('profile-role-actions');
+    const roleSelect = document.getElementById('profile-role-select');
+    const userId = roleActions.dataset.userId;
+    const newRole = roleSelect.value;
+
+    if (!userId || !newRole || !this.currentServer) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`${this.apiBase}/servers/${this.currentServer.id}/members/${userId}/role`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.authToken}`
+        },
+        body: JSON.stringify({ user_id: userId, role: newRole })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || '역할 변경 실패');
+      }
+
+      const updatedMember = await response.json();
+
+      // 현재 서버의 멤버 목록에서 업데이트
+      const memberIndex = this.currentServer.members.findIndex(m => m.id === userId);
+      if (memberIndex !== -1) {
+        this.currentServer.members[memberIndex].role = updatedMember.role;
+      }
+
+      // 프로필 모달 업데이트
+      const roleMap = {
+        'owner': '소유자',
+        'admin': '관리자',
+        'moderator': '모더레이터',
+        'member': '멤버'
+      };
+      document.getElementById('profile-role').textContent = roleMap[updatedMember.role] || updatedMember.role;
+
+      this.showToast(`역할이 "${roleMap[newRole]}"(으)로 변경되었습니다.`, 'success');
+      this.renderMembers();
+    } catch (error) {
+      console.error('역할 변경 오류:', error);
+      this.showToast(`역할 변경 실패: ${error.message}`, 'error');
+    }
+  }
+
+  showNotification(title, body, channelId, serverId, message) {
     if (this.dndMode) return;
 
+    // Check notification settings
+    if (this.notificationSettings) {
+      // Check if desktop notifications are enabled
+      if (!this.notificationSettings.desktop_enabled) return;
+
+      // Check server mute status
+      if (serverId) {
+        const serverSetting = this.notificationSettings.servers?.find(s => s.server_id === serverId);
+        if (serverSetting?.muted) return;
+      }
+
+      // Check channel notification level
+      if (channelId) {
+        const channelSetting = this.notificationSettings.channels?.find(c => c.channel_id === channelId);
+        const level = channelSetting?.level || 'all_messages';
+
+        if (level === 'muted') return;
+
+        // If mentions_only, check if message contains mention
+        if (level === 'mentions_only') {
+          const currentUsername = this.auth?.currentUser?.username || this.user?.name;
+          if (!message || !message.includes(`@${currentUsername}`)) {
+            return;
+          }
+        }
+      }
+    }
+
+    // Show notification
     if (window.electronAPI) {
       window.electronAPI.showNotification({ title, body });
     } else if ('Notification' in window && Notification.permission === 'granted') {
@@ -3107,6 +4129,10 @@ class WorkMessenger {
       window.electronAPI.onSocketEvent('poll_vote', (data) => {
         this.applyPollVote(data);
       });
+
+      window.electronAPI.onSocketEvent('message_deleted', (data) => {
+        this.handleMessageDeleted(data);
+      });
     } catch (error) {
       console.error('소켓 연결 실패:', error);
     }
@@ -3133,20 +4159,98 @@ class WorkMessenger {
       this.messages[channelId] = [];
     }
     const normalized = this.normalizeMessage(message);
+
+    // 스레드 답글인 경우 처리
+    if (normalized.thread_id) {
+      // 원본 메시지의 reply_count 증가
+      const parentMsg = this.messages[channelId]?.find(m => m.id === normalized.thread_id);
+      if (parentMsg) {
+        parentMsg.reply_count = (parentMsg.reply_count || 0) + 1;
+
+        // 메인 채널에서 원본 메시지의 답글 카운트만 업데이트
+        if (this.currentChannel?.id === channelId) {
+          this.updateThreadCountUI(normalized.thread_id, channelId);
+        }
+      }
+
+      // 현재 열린 스레드에 답글 추가
+      if (this.currentThread && this.currentThread.messageId === normalized.thread_id) {
+        if (!this.threads[channelId]) {
+          this.threads[channelId] = {};
+        }
+        if (!this.threads[channelId][normalized.thread_id]) {
+          this.threads[channelId][normalized.thread_id] = [];
+        }
+
+        // 중복 체크
+        const existsInThread = this.threads[channelId][normalized.thread_id].some(r => r.id === normalized.id);
+        if (!existsInThread) {
+          this.threads[channelId][normalized.thread_id].push(normalized);
+          this.appendThreadReply(normalized);
+        }
+      }
+
+      // 답글은 메인 메시지 목록에 추가하지 않음
+      return;
+    }
+
+    // 일반 메시지 처리
+    // 자신이 보낸 메시지인 경우, 로컬의 임시 ID를 백엔드 ID로 교체
+    const currentUserId = this.auth?.currentUser?.id || this.user?.id;
+    if (normalized.sender.id === currentUserId) {
+      // 최근 5초 이내에 보낸 메시지 중에서 내용이 같은 것을 찾음
+      const recentTime = Date.now() - 5000;
+      const localMsg = this.messages[channelId].find(m =>
+        m.sender.id === currentUserId &&
+        m.content === normalized.content &&
+        typeof m.id === 'number' &&
+        m.id > recentTime
+      );
+
+      console.log('[ID 교체 디버깅]', {
+        normalizedSenderId: normalized.sender.id,
+        currentUserId: currentUserId,
+        normalizedId: normalized.id,
+        normalizedContent: normalized.content,
+        localMsgFound: !!localMsg,
+        localMsgId: localMsg?.id
+      });
+
+      if (localMsg) {
+        console.log(`[ID 교체 성공] ${localMsg.id} -> ${normalized.id}`);
+        // 로컬 메시지의 ID를 백엔드 ID로 교체
+        localMsg.id = normalized.id;
+        localMsg.timestamp = normalized.timestamp;
+        if (normalized.edited_at) localMsg.edited_at = normalized.edited_at;
+        if (normalized.is_deleted) localMsg.is_deleted = normalized.is_deleted;
+        // UI 갱신 필요 시 리렌더링
+        if (this.currentChannel?.id === channelId) {
+          this.renderMessages(channelId);
+        }
+        return;
+      } else {
+        console.log('[ID 교체 실패] 매칭되는 로컬 메시지를 찾을 수 없음');
+      }
+    }
+
     const exists = this.messages[channelId].some(m => m.id === normalized.id);
     if (!exists) {
       this.messages[channelId].push(normalized);
     }
 
-    // 채널 업데이트
-    let channel = null;
-    this.currentServer?.categories.forEach(category => {
-      const found = category.channels.find(c => c.id === channelId);
-      if (found) channel = found;
-    });
+    // 채널 업데이트 - unread count
+    if (this.currentChannel?.id !== channelId) {
+      // Increment unread count locally
+      if (!this.unreadCounts[channelId]) {
+        this.unreadCounts[channelId] = { count: 0, has_mention: false };
+      }
+      this.unreadCounts[channelId].count++;
 
-    if (channel && this.currentChannel?.id !== channelId) {
-      channel.unread++;
+      // Check for mentions
+      const currentUsername = this.auth?.currentUser?.username || this.user?.name;
+      if (normalized.content && normalized.content.includes(`@${currentUsername}`)) {
+        this.unreadCounts[channelId].has_mention = true;
+      }
     }
 
     // UI 업데이트
@@ -3164,7 +4268,44 @@ class WorkMessenger {
 
     // 알림 표시
     if (this.currentChannel?.id !== channelId) {
-      this.showNotification(normalized.sender.name, normalized.content);
+      this.showNotification(
+        normalized.sender.name,
+        normalized.content,
+        channelId,
+        this.currentServer?.id,
+        normalized.content
+      );
+    }
+  }
+
+  updateThreadCountUI(messageId, channelId) {
+    const msgEl = document.querySelector(`[data-message-id="${messageId}"]`);
+    if (!msgEl) return;
+
+    const count = this.getThreadCount(messageId, channelId);
+    let threadCountEl = msgEl.querySelector('.message-thread-count');
+
+    if (count > 0) {
+      if (!threadCountEl) {
+        // 답글 카운트 요소 생성
+        threadCountEl = document.createElement('div');
+        threadCountEl.className = 'message-thread-count';
+        threadCountEl.innerHTML = `
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+            <path d="M7 8h10M7 12h7M7 16h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <path d="M3 12h0M21 12h0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+          <span>${count}개의 답글</span>
+        `;
+        threadCountEl.onclick = () => this.openThread(messageId, channelId);
+
+        const messageContent = msgEl.querySelector('.message-content');
+        messageContent?.appendChild(threadCountEl);
+      } else {
+        // 기존 요소 업데이트
+        const span = threadCountEl.querySelector('span');
+        if (span) span.textContent = `${count}개의 답글`;
+      }
     }
   }
 
@@ -3224,6 +4365,27 @@ class WorkMessenger {
     }
   }
 
+  handleMessageDeleted(data) {
+    const { channelId, messageId } = data;
+
+    // 로컬 메시지 상태 업데이트 (소프트 삭제)
+    const messages = this.messages[channelId];
+    if (!messages) return;
+
+    const message = messages.find(m => m.id === messageId);
+    if (message) {
+      message.is_deleted = true;
+      message.content = '[삭제된 메시지]';
+
+      // 현재 채널이면 UI 업데이트
+      if (this.currentChannel?.id === channelId) {
+        this.renderMessages(channelId);
+      }
+
+      console.log(`메시지 ${messageId}가 삭제되었습니다.`);
+    }
+  }
+
   // ========================================
   // 고정 메시지 관리
   // ========================================
@@ -3238,6 +4400,32 @@ class WorkMessenger {
     const pinButton = contextMenu.querySelector('[data-action="pin"]');
     const pinText = pinButton.querySelector('span');
     pinText.textContent = isPinned ? '메시지 고정 해제' : '메시지 고정';
+
+    // 편집 버튼 표시/숨김 (본인 메시지이고 15분 이내인 경우만 표시)
+    const editButton = contextMenu.querySelector('[data-action="edit"]');
+    const deleteButton = contextMenu.querySelector('[data-action="delete"]');
+    const currentUserId = this.auth?.currentUser?.id || this.user?.id;
+    const isOwner = message.sender.id === currentUserId;
+    const messageTime = message.timestamp ? new Date(message.timestamp) : new Date();
+    const timeDiff = Date.now() - messageTime.getTime();
+    const canEdit = isOwner && timeDiff < 15 * 60 * 1000; // 15분
+
+    // 디버깅 로그
+    console.log('[컨텍스트 메뉴 디버깅]', {
+      messageId: message.id,
+      messageSenderId: message.sender.id,
+      currentUserId: currentUserId,
+      isOwner: isOwner,
+      messageTimestamp: message.timestamp,
+      messageTime: messageTime,
+      timeDiff: timeDiff,
+      timeDiffMinutes: Math.floor(timeDiff / 60000),
+      canEdit: canEdit
+    });
+
+    // 임시로 항상 표시 (디버깅용)
+    editButton.style.display = isOwner ? 'flex' : 'none';  // 시간 제한 제거
+    deleteButton.style.display = isOwner ? 'flex' : 'none';
 
     // 위치 설정
     contextMenu.style.display = 'block';
@@ -3274,7 +4462,7 @@ class WorkMessenger {
         this.copyMessageText(message);
         break;
       case 'delete':
-        this.deleteMessage(message.id, channelId);
+        await this.deleteMessage(message.id, channelId);
         break;
     }
   }
@@ -3456,31 +4644,112 @@ class WorkMessenger {
     }
   }
 
-  deleteMessage(messageId, channelId) {
-    if (!confirm('이 메시지를 삭제하시겠습니까?')) {
-      return;
-    }
+  showConfirmDialog(title, message) {
+    return new Promise((resolve) => {
+      // 오버레이 생성
+      const overlay = document.createElement('div');
+      overlay.className = 'confirm-overlay';
 
-    const messages = this.messages[channelId];
-    const index = messages.findIndex(m => m.id === messageId);
+      // 다이얼로그 생성
+      const dialog = document.createElement('div');
+      dialog.className = 'confirm-dialog';
+      dialog.innerHTML = `
+        <div class="confirm-header">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
+            <path d="M12 8v4M12 16h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+          <h3>${title}</h3>
+        </div>
+        <div class="confirm-body">
+          <p>${message}</p>
+        </div>
+        <div class="confirm-actions">
+          <button class="confirm-cancel-btn">취소</button>
+          <button class="confirm-delete-btn">삭제</button>
+        </div>
+      `;
 
-    if (index !== -1) {
-      messages.splice(index, 1);
+      overlay.appendChild(dialog);
+      document.body.appendChild(overlay);
 
-      // 고정된 메시지도 제거
-      if (this.pinnedMessages[channelId]) {
-        const pinnedIndex = this.pinnedMessages[channelId].indexOf(messageId);
-        if (pinnedIndex !== -1) {
-          this.pinnedMessages[channelId].splice(pinnedIndex, 1);
+      const cancelBtn = dialog.querySelector('.confirm-cancel-btn');
+      const deleteBtn = dialog.querySelector('.confirm-delete-btn');
+
+      const cleanup = () => {
+        overlay.classList.add('fade-out');
+        setTimeout(() => {
+          document.body.removeChild(overlay);
+        }, 200);
+      };
+
+      cancelBtn.onclick = () => {
+        cleanup();
+        resolve(false);
+      };
+
+      deleteBtn.onclick = () => {
+        cleanup();
+        resolve(true);
+      };
+
+      overlay.onclick = (e) => {
+        if (e.target === overlay) {
+          cleanup();
+          resolve(false);
         }
+      };
+
+      // ESC 키로 닫기
+      const handleEsc = (e) => {
+        if (e.key === 'Escape') {
+          cleanup();
+          resolve(false);
+          document.removeEventListener('keydown', handleEsc);
+        }
+      };
+      document.addEventListener('keydown', handleEsc);
+
+      // 애니메이션
+      setTimeout(() => overlay.classList.add('show'), 10);
+    });
+  }
+
+  async deleteMessage(messageId, channelId) {
+    const confirmed = await this.showConfirmDialog(
+      '메시지 삭제',
+      '이 메시지를 삭제하시겠습니까?\n삭제된 메시지는 "[삭제된 메시지]"로 표시됩니다.'
+    );
+
+    if (!confirmed) return;
+
+    try {
+      // API 호출
+      const response = await fetch(`${this.apiBase}/messages/${messageId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${this.authToken}`
+        }
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || '메시지 삭제에 실패했습니다.');
       }
 
-      // 리액션도 제거
-      if (this.reactions[channelId] && this.reactions[channelId][messageId]) {
-        delete this.reactions[channelId][messageId];
+      // 로컬 상태 업데이트 (소프트 삭제)
+      const messages = this.messages[channelId];
+      const message = messages.find(m => m.id === messageId);
+      if (message) {
+        message.is_deleted = true;
+        message.content = '[삭제된 메시지]';
       }
 
+      // UI 업데이트
       this.renderMessages(channelId);
+    } catch (error) {
+      console.error('메시지 삭제 실패:', error);
+      alert(error.message || '메시지 삭제에 실패했습니다.');
     }
   }
 
@@ -3489,13 +4758,20 @@ class WorkMessenger {
   // ========================================
 
   getThreadCount(messageId, channelId) {
+    // reply_count가 메시지 객체에 있으면 그것을 사용
+    const messages = this.messages[channelId] || [];
+    const message = messages.find(m => m.id === messageId);
+    if (message && message.reply_count !== undefined) {
+      return message.reply_count;
+    }
+    // 없으면 로컬 threads 객체 확인 (하위 호환성)
     if (!this.threads[channelId] || !this.threads[channelId][messageId]) {
       return 0;
     }
     return this.threads[channelId][messageId].length;
   }
 
-  openThread(messageId, channelId) {
+  async openThread(messageId, channelId) {
     const messages = this.messages[channelId] || [];
     const message = messages.find(m => m.id === messageId);
 
@@ -3505,30 +4781,70 @@ class WorkMessenger {
 
     // 스레드 패널 표시
     const threadPanel = document.getElementById('thread-panel');
-    threadPanel.style.display = 'flex';
+    if (threadPanel) {
+      threadPanel.style.display = 'flex';
+    }
+
+    // 닉네임이 있으면 닉네임 표시, 없으면 기본 이름 표시
+    const displayName = this.getDisplayName(message.sender.id) || message.sender.name;
 
     // 원본 메시지 렌더링
     const originalMessageEl = document.getElementById('thread-original-message');
-    originalMessageEl.innerHTML = `
-      <div class="message">
-        <div class="avatar">${message.sender.avatar}</div>
-        <div class="message-content">
-          <div class="message-header">
-            <span class="message-sender">${message.sender.name}</span>
-            <span class="message-time">${message.time}</span>
+    if (originalMessageEl) {
+      originalMessageEl.innerHTML = `
+        <div class="message">
+          <div class="avatar">${message.sender.avatar}</div>
+          <div class="message-content">
+            <div class="message-header">
+              <span class="message-sender">${displayName}</span>
+              <span class="message-time">${message.time}</span>
+            </div>
+            ${message.content ? `<div class="message-bubble">${this.formatMessage(message.content)}</div>` : ''}
           </div>
-          ${message.content ? `<div class="message-bubble">${this.formatMessage(message.content)}</div>` : ''}
         </div>
-      </div>
-    `;
+      `;
+    }
+
+    // 백엔드에서 스레드 답글 조회
+    await this.fetchThreadReplies(messageId);
 
     // 스레드 렌더링
     this.renderThread();
 
     // 입력창 초기화
     const threadInput = document.getElementById('thread-input');
-    threadInput.value = '';
-    threadInput.style.height = 'auto';
+    if (threadInput) {
+      threadInput.value = '';
+      threadInput.style.height = 'auto';
+    }
+  }
+
+  async fetchThreadReplies(messageId) {
+    try {
+      const response = await fetch(`${this.apiBase}/messages/${messageId}/replies`, {
+        headers: {
+          'Authorization': `Bearer ${this.authToken}`
+        }
+      });
+
+      if (response.ok) {
+        const replies = await response.json();
+        // 스레드 답글을 로컬 저장소에 저장
+        if (!this.threads[this.currentChannel.id]) {
+          this.threads[this.currentChannel.id] = {};
+        }
+        // 백엔드 응답 형식을 프론트엔드 형식으로 변환
+        this.threads[this.currentChannel.id][messageId] = replies.map(reply => ({
+          id: reply.id,
+          content: reply.content,
+          sender: reply.sender,
+          time: this.formatTime(new Date(reply.timestamp)),
+          timestamp: new Date(reply.timestamp)
+        }));
+      }
+    } catch (error) {
+      console.error('Failed to fetch thread replies:', error);
+    }
   }
 
   closeThread() {
@@ -3537,7 +4853,7 @@ class WorkMessenger {
     this.currentThread = null;
   }
 
-  sendThreadReply() {
+  async sendThreadReply() {
     if (!this.currentThread) return;
 
     const input = document.getElementById('thread-input');
@@ -3547,55 +4863,80 @@ class WorkMessenger {
 
     const { messageId, channelId } = this.currentThread;
 
-    // 스레드 초기화
-    if (!this.threads[channelId]) {
-      this.threads[channelId] = {};
+    const socketConnected = window.electronAPI?.isSocketConnected?.();
+
+    if (socketConnected) {
+      // Socket.IO를 통해 전송
+      window.electronAPI.emitSocketEvent('message', {
+        channelId,
+        message: {
+          sender: {
+            id: this.user.id,
+            name: this.user.name,
+            avatar: this.user.avatar
+          },
+          content: content,
+          threadId: messageId  // 답글임을 표시
+        }
+      });
+
+      // 입력창 초기화
+      input.value = '';
+      input.style.height = 'auto';
+      const sendBtn = document.getElementById('send-thread-reply');
+      if (sendBtn) sendBtn.disabled = true;
+
+      return;
     }
-    if (!this.threads[channelId][messageId]) {
-      this.threads[channelId][messageId] = [];
+
+    // 소켓이 끊겨있으면 REST API로 전송
+    if (this.apiBase) {
+      try {
+        const payload = {
+          sender: {
+            id: this.user.id,
+            name: this.user.name,
+            avatar: this.user.avatar
+          },
+          content,
+          thread_id: messageId  // 답글임을 표시
+        };
+
+        const saved = await this.apiRequest(`/channels/${channelId}/messages`, {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        });
+
+        if (saved) {
+          // 로컬에 답글 추가
+          if (!this.threads[channelId]) {
+            this.threads[channelId] = {};
+          }
+          if (!this.threads[channelId][messageId]) {
+            this.threads[channelId][messageId] = [];
+          }
+
+          const normalized = this.normalizeMessage(saved);
+          this.threads[channelId][messageId].push(normalized);
+          this.appendThreadReply(normalized);
+
+          // 원본 메시지의 reply_count 증가
+          const parentMsg = this.messages[channelId]?.find(m => m.id === messageId);
+          if (parentMsg) {
+            parentMsg.reply_count = (parentMsg.reply_count || 0) + 1;
+            this.updateThreadCountUI(messageId, channelId);
+          }
+        }
+      } catch (error) {
+        console.error('스레드 답글 전송 실패:', error);
+      }
     }
-
-    // 답글 생성
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString('ko-KR', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true
-    });
-
-    const reply = {
-      id: Date.now(),
-      content: content,
-      sender: {
-        name: this.user.name,
-        avatar: this.user.avatar
-      },
-      time: timeStr,
-      timestamp: now
-    };
-
-    // 답글 추가
-    this.threads[channelId][messageId].push(reply);
 
     // 입력창 초기화
     input.value = '';
     input.style.height = 'auto';
-    document.getElementById('send-thread-reply').disabled = true;
-
-    // 새 답글만 추가 (성능 최적화)
-    this.appendThreadReply(reply);
-
-    // 원본 메시지의 스레드 카운트만 업데이트 (전체 렌더링 방지)
-    this.updateThreadCount(messageId, channelId);
-
-    // 소켓으로 전송 (서버 연결 시)
-    if (this.socket?.connected) {
-      this.socket.emit('thread-reply', {
-        channelId,
-        messageId,
-        reply
-      });
-    }
+    const sendBtn = document.getElementById('send-thread-reply');
+    if (sendBtn) sendBtn.disabled = true;
   }
 
   // 전체 스레드 렌더링
