@@ -207,6 +207,25 @@
   accent-color: var(--accent);
 }
 
+.forgot-password-link {
+  font-size: 13px;
+  color: var(--accent);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+.forgot-password-link:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
+.form-hint {
+  display: block;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-top: 6px;
+}
+
 .auth-btn {
   width: 100%;
   padding: 12px 24px;
@@ -4505,6 +4524,16 @@ body {
   gap: 16px;
 }
 
+.profile-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-top: 8px;
+  margin-bottom: 4px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
 .profile-field {
   display: flex;
   flex-direction: column;
@@ -4915,5 +4944,111 @@ body {
 .notification-level-select:focus {
   outline: none;
   border-color: var(--accent);
+}
+
+
+
+/* =========================
+   저장한 메시지 모달 스타일
+   ========================= */
+.saved-messages-modal {
+  max-width: 700px;
+  max-height: 80vh;
+}
+
+.saved-messages-list {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.saved-messages-empty {
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.saved-message-item {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  margin-bottom: 12px;
+  transition: all var(--transition-fast);
+}
+
+.saved-message-item:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+
+.saved-message-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.saved-message-sender {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.saved-message-sender .avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.saved-message-sender .sender-name {
+  font-weight: 500;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.saved-message-time {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.unsave-btn {
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.saved-message-item:hover .unsave-btn {
+  opacity: 1;
+}
+
+.saved-message-content {
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.5;
+  word-wrap: break-word;
+}
+
+.saved-message-attachments {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.attachment-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 

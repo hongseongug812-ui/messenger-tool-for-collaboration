@@ -4,15 +4,22 @@ import mimetypes
 import aiofiles
 import base64
 import re
+import io
+import secrets
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional
 
 import socketio
-from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File
+import pyotp
+import qrcode
+import aiosmtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from jose import JWTError, jwt
 from motor.motor_asyncio import AsyncIOMotorClient
 from passlib.context import CryptContext
@@ -114,12 +121,138 @@ async def process_mentions_and_keywords(message_id: str, channel_id: str, conten
         break  # 사용자당 하나의 키워드 알림만
 
 
+async def send_email(to_email: str, subject: str, body: str):
+  """이메일 발송 유틸리티"""
+  if not SMTP_USER or not SMTP_PASSWORD:
+    print("[send_email] SMTP 설정이 없습니다. 이메일을 발송하지 않습니다.")
+    return False
+
+  try:
+    message = MIMEMultipart("alternative")
+    message["Subject"] = subject
+    message["From"] = SMTP_FROM_EMAIL
+    message["To"] = to_email
+
+    html_part = MIMEText(body, "html")
+    message.attach(html_part)
+
+    await aiosmtplib.send(
+      message,
+      hostname=SMTP_HOST,
+      port=SMTP_PORT,
+      username=SMTP_USER,
+      password=SMTP_PASSWORD,
+      start_tls=True
+    )
+    print(f"[send_email] 이메일 발송 성공: {to_email}")
+    return True
+  except Exception as e:
+    print(f"[send_email] 이메일 발송 실패: {e}")
+    return False
+
+
+async def create_password_reset_token(user_id: str, email: str) -> str:
+  """비밀번호 재설정 토큰 생성"""
+  token = secrets.token_urlsafe(32)
+  expires_at = _now() + timedelta(hours=1)  # 1시간 유효
+
+  await password_reset_tokens_col.insert_one({
+    "_id": token,
+    "user_id": user_id,
+    "email": email,
+    "created_at": _now(),
+    "expires_at": expires_at,
+    "used": False
+  })
+
+  return token
+
+
+async def verify_password_reset_token(token: str) -> Optional[Dict]:
+  """비밀번호 재설정 토큰 검증"""
+  token_doc = await password_reset_tokens_col.find_one({"_id": token})
+
+  if not token_doc:
+    return None
+
+  if token_doc.get("used"):
+    return None
+
+  if token_doc["expires_at"] < _now():
+    return None
+
+  return token_doc
+
+
+async def mark_token_as_used(token: str):
+  """토큰을 사용 완료로 표시"""
+  await password_reset_tokens_col.update_one(
+    {"_id": token},
+    {"$set": {"used": True, "used_at": _now()}}
+  )
+
+
+async def record_login_session(user_id: str, ip_address: str, user_agent: str):
+  """로그인 세션 기록"""
+  session = {
+    "_id": f"session_{uuid.uuid4().hex[:12]}",
+    "user_id": user_id,
+    "ip_address": ip_address,
+    "user_agent": user_agent,
+    "timestamp": _now()
+  }
+
+  await login_sessions_col.insert_one(session)
+
+  # 새로운 기기/위치 감지 (최근 30일 이내 같은 IP로 로그인한 적이 없는 경우)
+  thirty_days_ago = _now() - timedelta(days=30)
+  existing_session = await login_sessions_col.find_one({
+    "user_id": user_id,
+    "ip_address": ip_address,
+    "timestamp": {"$gte": thirty_days_ago}
+  })
+
+  # 새로운 기기로 로그인하는 경우 이메일 알림 발송
+  is_new_device = existing_session is None
+  if is_new_device:
+    user_doc = await users_col.find_one({"_id": user_id})
+    if user_doc:
+      await send_email(
+        to_email=user_doc["email"],
+        subject="새로운 기기에서 로그인",
+        body=f"""
+        <html>
+          <body>
+            <h2>새로운 기기에서 로그인이 감지되었습니다</h2>
+            <p>안녕하세요 {user_doc['name']}님,</p>
+            <p>귀하의 계정에 새로운 기기에서 로그인이 감지되었습니다:</p>
+            <ul>
+              <li>IP 주소: {ip_address}</li>
+              <li>사용자 에이전트: {user_agent}</li>
+              <li>로그인 시간: {_now().strftime('%Y-%m-%d %H:%M:%S')}</li>
+            </ul>
+            <p>본인의 로그인이 아닌 경우, 즉시 비밀번호를 변경해주세요.</p>
+          </body>
+        </html>
+        """
+      )
+
+  return is_new_device
+
+
 # 환경 변수
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 MONGO_DB = os.getenv("MONGO_DB", "work_messenger")
 JWT_SECRET = os.getenv("JWT_SECRET", "change-me-in-production")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = 24 * 7  # 7일
+
+# SMTP 설정 (이메일 발송용)
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", SMTP_USER)
 
 # 암호화 설정
 ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", "default-encryption-key-change-in-production-32bytes")
@@ -160,6 +293,9 @@ audit_logs_col = mongo_db["audit_logs"]
 dm_channels_col = mongo_db["dm_channels"]  # DM and group DM channels
 user_channel_reads_col = mongo_db["user_channel_reads"]  # Track last read timestamps
 notification_settings_col = mongo_db["notification_settings"]  # Notification preferences
+password_reset_tokens_col = mongo_db["password_reset_tokens"]  # 비밀번호 재설정 토큰
+login_sessions_col = mongo_db["login_sessions"]  # 로그인 세션 기록
+bookmarks_col = mongo_db["bookmarks"]  # 사용자별 북마크(저장한 메시지)
 
 # 비밀번호 해싱 및 인증 스킴 (bcrypt 72바이트 제한 회피를 위해 bcrypt_sha256 사용)
 pwd_context = CryptContext(schemes=["bcrypt_sha256"], deprecated="auto")
@@ -286,6 +422,10 @@ class User(BaseModel):
   phone: Optional[str] = None  # 회사 번호
   location: Optional[str] = None  # 근무지 (본사/지점/재택 등)
 
+  # 보안 설정 (2FA)
+  totp_enabled: bool = False  # 2FA 활성화 여부
+  totp_secret: Optional[str] = None  # TOTP 시크릿 (암호화 저장)
+
 
 class UserInDB(User):
   hashed_password: str
@@ -316,7 +456,61 @@ class AuthResponse(BaseModel):
   access_token: str
   token_type: str
   user: User
+  requires_2fa: bool = False  # 2FA 인증이 필요한 경우
 
+
+# 보안 관련 모델
+class PasswordResetRequest(BaseModel):
+  """비밀번호 재설정 요청"""
+  email: EmailStr
+
+
+class PasswordResetConfirm(BaseModel):
+  """비밀번호 재설정 확인"""
+  token: str
+  new_password: str = Field(..., min_length=6, max_length=72)
+
+
+class TwoFactorSetup(BaseModel):
+  """2FA 설정 응답"""
+  secret: str
+  qr_code_url: str
+
+
+class TwoFactorVerify(BaseModel):
+  """2FA 코드 검증"""
+  code: str = Field(..., min_length=6, max_length=6)
+
+
+class TwoFactorLogin(BaseModel):
+  """2FA 로그인"""
+  username: str
+  password: str
+  totp_code: Optional[str] = None
+
+
+class LoginSession(BaseModel):
+  """로그인 세션 기록"""
+  user_id: str
+  ip_address: Optional[str] = None
+  user_agent: Optional[str] = None
+  location: Optional[str] = None
+  timestamp: datetime
+
+
+class BookmarkCreate(BaseModel):
+  """북마크 생성 요청"""
+  message_id: str
+
+
+class Bookmark(BaseModel):
+  """북마크(저장한 메시지)"""
+  id: str
+  user_id: str
+  message_id: str
+  server_id: Optional[str] = None
+  channel_id: str
+  created_at: datetime
 
 
 class Sender(BaseModel):
@@ -824,12 +1018,37 @@ async def signup(user_data: UserSignup):
 
 
 @fastapi_app.post("/auth/login", response_model=AuthResponse)
-async def login(credentials: UserLogin):
+async def login(credentials: TwoFactorLogin, request: Request):
   user_doc = await users_col.find_one({"username": credentials.username})
   ensure_password_length(credentials.password)
 
   if not user_doc or not verify_password(credentials.password, user_doc.get("hashed_password", "")):
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect username or password")
+
+  # 2FA 활성화 확인
+  totp_enabled = user_doc.get("totp_enabled", False)
+  if totp_enabled:
+    # 2FA 코드 검증
+    if not credentials.totp_code:
+      # 2FA 코드가 필요함을 알림
+      raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="2FA code required"
+      )
+
+    totp_secret = user_doc.get("totp_secret")
+    if not totp_secret:
+      raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="2FA configuration error")
+
+    # TOTP 검증
+    totp = pyotp.TOTP(totp_secret)
+    if not totp.verify(credentials.totp_code):
+      raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid 2FA code")
+
+  # 로그인 세션 기록
+  ip_address = request.client.host if request.client else "unknown"
+  user_agent = request.headers.get("user-agent", "unknown")
+  await record_login_session(user_doc["_id"], ip_address, user_agent)
 
   access_token = create_access_token(data={"sub": credentials.username})
   user = User(
@@ -844,6 +1063,7 @@ async def login(credentials: UserLogin):
       extension=user_doc.get("extension"),
       phone=user_doc.get("phone"),
       location=user_doc.get("location"),
+      totp_enabled=user_doc.get("totp_enabled", False),
   )
   return AuthResponse(access_token=access_token, token_type="bearer", user=user)
 
@@ -926,6 +1146,265 @@ async def get_user_profile(user_id: str, current_user: User = Depends(get_curren
 async def logout():
   # JWT는 상태가 없으므로 클라이언트에서 토큰을 삭제하도록 안내만 반환
   return {"status": "ok", "message": "logged out"}
+
+
+# -----------------------------
+# 비밀번호 재설정 API
+# -----------------------------
+@fastapi_app.post("/auth/forgot-password")
+async def forgot_password(request_data: PasswordResetRequest):
+  """비밀번호 재설정 요청 - 이메일로 재설정 링크 발송"""
+  user_doc = await users_col.find_one({"email": request_data.email})
+
+  # 보안상 이메일이 없어도 같은 응답 반환 (이메일 존재 여부 노출 방지)
+  if not user_doc:
+    return {"status": "ok", "message": "If the email exists, a reset link has been sent"}
+
+  # 비밀번호 재설정 토큰 생성
+  token = await create_password_reset_token(user_doc["_id"], user_doc["email"])
+
+  # 이메일 발송 (실제 환경에서는 프론트엔드 URL로 변경)
+  reset_url = f"http://localhost:3000/reset-password?token={token}"
+  await send_email(
+    to_email=user_doc["email"],
+    subject="비밀번호 재설정 요청",
+    body=f"""
+    <html>
+      <body>
+        <h2>비밀번호 재설정</h2>
+        <p>안녕하세요 {user_doc['name']}님,</p>
+        <p>비밀번호 재설정을 요청하셨습니다. 아래 링크를 클릭하여 새로운 비밀번호를 설정해주세요:</p>
+        <p><a href="{reset_url}">비밀번호 재설정하기</a></p>
+        <p>이 링크는 1시간 동안 유효합니다.</p>
+        <p>본인이 요청하지 않으셨다면 이 이메일을 무시하세요.</p>
+      </body>
+    </html>
+    """
+  )
+
+  return {"status": "ok", "message": "If the email exists, a reset link has been sent"}
+
+
+@fastapi_app.post("/auth/reset-password")
+async def reset_password(reset_data: PasswordResetConfirm):
+  """비밀번호 재설정 확인 - 토큰 검증 후 비밀번호 변경"""
+  # 토큰 검증
+  token_doc = await verify_password_reset_token(reset_data.token)
+  if not token_doc:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired reset token")
+
+  # 비밀번호 길이 검증
+  ensure_password_length(reset_data.new_password)
+
+  # 새 비밀번호 해싱
+  hashed_password = hash_password(reset_data.new_password)
+
+  # 비밀번호 업데이트
+  await users_col.update_one(
+    {"_id": token_doc["user_id"]},
+    {"$set": {"hashed_password": hashed_password}}
+  )
+
+  # 토큰 사용 완료 표시
+  await mark_token_as_used(reset_data.token)
+
+  return {"status": "ok", "message": "Password reset successful"}
+
+
+# -----------------------------
+# 2FA (TOTP) API
+# -----------------------------
+@fastapi_app.post("/auth/2fa/setup")
+async def setup_2fa(current_user: User = Depends(get_current_user)):
+  """2FA 설정 - TOTP 시크릿 생성 및 QR 코드 반환"""
+  # TOTP 시크릿 생성
+  secret = pyotp.random_base32()
+
+  # TOTP URI 생성 (Google Authenticator 등에서 사용)
+  totp_uri = pyotp.totp.TOTP(secret).provisioning_uri(
+    name=current_user.email,
+    issuer_name="Work Messenger"
+  )
+
+  # QR 코드 생성
+  qr = qrcode.QRCode(version=1, box_size=10, border=5)
+  qr.add_data(totp_uri)
+  qr.make(fit=True)
+
+  img = qr.make_image(fill_color="black", back_color="white")
+
+  # QR 코드를 base64로 인코딩
+  buffered = io.BytesIO()
+  img.save(buffered, format="PNG")
+  qr_code_base64 = base64.b64encode(buffered.getvalue()).decode()
+
+  # 시크릿을 임시로 DB에 저장 (활성화되지 않은 상태)
+  await users_col.update_one(
+    {"_id": current_user.id},
+    {"$set": {"totp_secret": secret, "totp_enabled": False}}
+  )
+
+  return {
+    "secret": secret,
+    "qr_code_url": f"data:image/png;base64,{qr_code_base64}"
+  }
+
+
+@fastapi_app.post("/auth/2fa/verify")
+async def verify_2fa(verify_data: TwoFactorVerify, current_user: User = Depends(get_current_user)):
+  """2FA 검증 - TOTP 코드 검증 후 2FA 활성화"""
+  user_doc = await users_col.find_one({"_id": current_user.id})
+
+  totp_secret = user_doc.get("totp_secret")
+  if not totp_secret:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="2FA setup required")
+
+  # TOTP 검증
+  totp = pyotp.TOTP(totp_secret)
+  if not totp.verify(verify_data.code):
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid 2FA code")
+
+  # 2FA 활성화
+  await users_col.update_one(
+    {"_id": current_user.id},
+    {"$set": {"totp_enabled": True}}
+  )
+
+  return {"status": "ok", "message": "2FA enabled successfully"}
+
+
+@fastapi_app.post("/auth/2fa/disable")
+async def disable_2fa(current_user: User = Depends(get_current_user)):
+  """2FA 비활성화"""
+  await users_col.update_one(
+    {"_id": current_user.id},
+    {"$set": {"totp_enabled": False, "totp_secret": None}}
+  )
+
+  return {"status": "ok", "message": "2FA disabled successfully"}
+
+
+# ========================================
+# 북마크 / 저장한 메시지
+# ========================================
+
+@fastapi_app.post("/bookmarks", response_model=Bookmark)
+async def create_bookmark(
+  bookmark_data: BookmarkCreate,
+  current_user: User = Depends(get_current_user)
+):
+  """메시지를 북마크(저장)"""
+  # 메시지 존재 확인
+  message = await messages_col.find_one({"_id": bookmark_data.message_id})
+  if not message:
+    raise HTTPException(status_code=404, detail="Message not found")
+
+  # 이미 북마크했는지 확인
+  existing = await bookmarks_col.find_one({
+    "user_id": current_user.id,
+    "message_id": bookmark_data.message_id
+  })
+
+  if existing:
+    raise HTTPException(status_code=400, detail="Message already bookmarked")
+
+  # 북마크 생성
+  bookmark_id = f"bookmark_{uuid.uuid4().hex[:12]}"
+  bookmark_doc = {
+    "_id": bookmark_id,
+    "user_id": current_user.id,
+    "message_id": bookmark_data.message_id,
+    "server_id": message.get("server_id"),
+    "channel_id": message.get("channel_id"),
+    "created_at": _now()
+  }
+
+  await bookmarks_col.insert_one(bookmark_doc)
+
+  return Bookmark(
+    id=bookmark_id,
+    user_id=current_user.id,
+    message_id=bookmark_data.message_id,
+    server_id=message.get("server_id"),
+    channel_id=message.get("channel_id"),
+    created_at=bookmark_doc["created_at"]
+  )
+
+
+@fastapi_app.get("/bookmarks")
+async def get_bookmarks(
+  current_user: User = Depends(get_current_user),
+  limit: int = 50,
+  offset: int = 0
+):
+  """사용자의 북마크된 메시지 목록 조회"""
+  # 북마크 목록 조회 (최신순)
+  cursor = bookmarks_col.find({"user_id": current_user.id}).sort("created_at", -1).skip(offset).limit(limit)
+  bookmarks = await cursor.to_list(length=limit)
+
+  # 메시지 정보 조회
+  result = []
+  for bookmark in bookmarks:
+    message = await messages_col.find_one({"_id": bookmark["message_id"]})
+    if message:
+      # 메시지 정보와 북마크 정보 결합
+      result.append({
+        "bookmark": {
+          "id": bookmark["_id"],
+          "created_at": bookmark["created_at"].isoformat()
+        },
+        "message": {
+          "id": message["_id"],
+          "content": message.get("content", ""),
+          "sender": message.get("sender", {}),
+          "timestamp": message.get("timestamp", ""),
+          "channel_id": message.get("channel_id"),
+          "server_id": message.get("server_id"),
+          "attachments": message.get("attachments", []),
+          "reactions": message.get("reactions", [])
+        }
+      })
+
+  # 전체 북마크 개수
+  total = await bookmarks_col.count_documents({"user_id": current_user.id})
+
+  return {
+    "bookmarks": result,
+    "total": total,
+    "limit": limit,
+    "offset": offset
+  }
+
+
+@fastapi_app.delete("/bookmarks/{message_id}")
+async def delete_bookmark(
+  message_id: str,
+  current_user: User = Depends(get_current_user)
+):
+  """북마크 삭제"""
+  result = await bookmarks_col.delete_one({
+    "user_id": current_user.id,
+    "message_id": message_id
+  })
+
+  if result.deleted_count == 0:
+    raise HTTPException(status_code=404, detail="Bookmark not found")
+
+  return {"status": "ok", "message": "Bookmark deleted"}
+
+
+@fastapi_app.get("/bookmarks/check/{message_id}")
+async def check_bookmark(
+  message_id: str,
+  current_user: User = Depends(get_current_user)
+):
+  """특정 메시지가 북마크되어 있는지 확인"""
+  bookmark = await bookmarks_col.find_one({
+    "user_id": current_user.id,
+    "message_id": message_id
+  })
+
+  return {"bookmarked": bookmark is not None}
 
 
 # 키워드 알림 관리

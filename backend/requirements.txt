@@ -11,3 +11,7 @@ aiofiles==24.1.0
 python-multipart==0.0.18
 cryptography==46.0.3
 openai==2.9.0
+pyotp==2.9.0
+qrcode==7.4.2
+pillow==11.0.0
+aiosmtplib==3.0.2

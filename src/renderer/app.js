@@ -457,6 +457,66 @@ class WorkMessenger {
     if (showLoginBtn) {
       showLoginBtn.addEventListener('click', () => this.switchToLogin());
     }
+
+    // 비밀번호 찾기 링크
+    const forgotPasswordLink = document.getElementById('forgot-password-link');
+    if (forgotPasswordLink) {
+      forgotPasswordLink.addEventListener('click', (e) => {
+        e.preventDefault();
+        this.showForgotPasswordModal();
+      });
+    }
+
+    // 비밀번호 찾기 모달
+    const forgotPasswordForm = document.getElementById('forgot-password-form');
+    if (forgotPasswordForm) {
+      forgotPasswordForm.addEventListener('submit', (e) => this.handleForgotPassword(e));
+    }
+
+    const closeForgotPassword = document.getElementById('close-forgot-password');
+    const cancelForgotPassword = document.getElementById('cancel-forgot-password');
+    if (closeForgotPassword) {
+      closeForgotPassword.addEventListener('click', () => this.closeForgotPasswordModal());
+    }
+    if (cancelForgotPassword) {
+      cancelForgotPassword.addEventListener('click', () => this.closeForgotPasswordModal());
+    }
+
+    // 비밀번호 재설정 모달
+    const resetPasswordForm = document.getElementById('reset-password-form');
+    if (resetPasswordForm) {
+      resetPasswordForm.addEventListener('submit', (e) => this.handleResetPassword(e));
+    }
+
+    const closeResetPassword = document.getElementById('close-reset-password');
+    const cancelResetPassword = document.getElementById('cancel-reset-password');
+    if (closeResetPassword) {
+      closeResetPassword.addEventListener('click', () => this.closeResetPasswordModal());
+    }
+    if (cancelResetPassword) {
+      cancelResetPassword.addEventListener('click', () => this.closeResetPasswordModal());
+    }
+
+    // 2FA 설정 모달
+    const twoFAVerifyForm = document.getElementById('2fa-verify-form');
+    if (twoFAVerifyForm) {
+      twoFAVerifyForm.addEventListener('submit', (e) => this.handle2FAVerify(e));
+    }
+
+    const close2FASetup = document.getElementById('close-2fa-setup');
+    const cancel2FASetup = document.getElementById('cancel-2fa-setup');
+    if (close2FASetup) {
+      close2FASetup.addEventListener('click', () => this.close2FASetupModal());
+    }
+    if (cancel2FASetup) {
+      cancel2FASetup.addEventListener('click', () => this.close2FASetupModal());
+    }
+
+    // 2FA 설정 토글 (설정 메뉴)
+    const settings2FAEnabled = document.getElementById('settings-2fa-enabled');
+    if (settings2FAEnabled) {
+      settings2FAEnabled.addEventListener('change', (e) => this.handle2FAToggle(e));
+    }
   }
 
   switchToSignup() {
@@ -500,6 +560,7 @@ class WorkMessenger {
     const username = document.getElementById('login-username').value.trim();
     const password = document.getElementById('login-password').value;
     const rememberMe = document.getElementById('remember-me').checked;
+    const totpCode = document.getElementById('login-2fa-code').value.trim();
 
     if (!username || !password) {
       this.showAuthError('login-form', '아이디와 비밀번호를 입력하세요.');
@@ -507,16 +568,30 @@ class WorkMessenger {
     }
 
     try {
-      // 백엔드 API 호출
+      // 백엔드 API 호출 (2FA 코드 포함)
+      const requestBody = { username, password };
+      if (totpCode) {
+        requestBody.totp_code = totpCode;
+      }
+
       const response = await fetch(`${this.apiBase}/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ username, password })
+        body: JSON.stringify(requestBody)
       });
 
       const data = await response.json();
+
+      // 2FA 코드 필요
+      if (response.status === 403 && data.detail === '2FA code required') {
+        // 2FA 입력 필드 표시
+        document.getElementById('2fa-code-group').style.display = 'block';
+        document.getElementById('login-2fa-code').focus();
+        this.showAuthError('login-form', '2단계 인증 코드를 입력하세요.');
+        return;
+      }
 
       if (!response.ok) {
         this.showAuthError('login-form', data.detail || '로그인에 실패했습니다.');
@@ -618,6 +693,412 @@ class WorkMessenger {
       console.error('회원가입 오류:', error);
       this.showAuthError('signup-form', '서버 연결에 실패했습니다. 백엔드 서버가 실행 중인지 확인하세요.');
     }
+  }
+
+  // ========================================
+  // 비밀번호 찾기/재설정
+  // ========================================
+
+  showForgotPasswordModal() {
+    const modal = document.getElementById('forgot-password-modal');
+    if (modal) {
+      modal.style.display = 'flex';
+      document.getElementById('forgot-email').focus();
+      // 성공 메시지 숨기기
+      document.getElementById('forgot-password-success').style.display = 'none';
+      document.getElementById('forgot-password-form').style.display = 'block';
+      // 폼 초기화
+      document.getElementById('forgot-password-form').reset();
+    }
+  }
+
+  closeForgotPasswordModal() {
+    const modal = document.getElementById('forgot-password-modal');
+    if (modal) {
+      modal.style.display = 'none';
+    }
+  }
+
+  async handleForgotPassword(e) {
+    e.preventDefault();
+
+    const email = document.getElementById('forgot-email').value.trim();
+
+    if (!email) {
+      alert('이메일을 입력하세요.');
+      return;
+    }
+
+    try {
+      const response = await fetch(`${this.apiBase}/auth/forgot-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ email })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        // 성공 메시지 표시
+        document.getElementById('forgot-password-form').style.display = 'none';
+        document.getElementById('forgot-password-success').style.display = 'block';
+      } else {
+        alert(data.detail || '비밀번호 재설정 요청에 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('비밀번호 찾기 오류:', error);
+      alert('서버 연결에 실패했습니다.');
+    }
+  }
+
+  closeResetPasswordModal() {
+    const modal = document.getElementById('reset-password-modal');
+    if (modal) {
+      modal.style.display = 'none';
+    }
+  }
+
+  async handleResetPassword(e) {
+    e.preventDefault();
+
+    const token = document.getElementById('reset-token').value;
+    const newPassword = document.getElementById('new-password').value;
+    const confirmPassword = document.getElementById('confirm-password').value;
+
+    if (!newPassword || !confirmPassword) {
+      alert('모든 필드를 입력하세요.');
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      alert('비밀번호는 6자 이상이어야 합니다.');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      alert('비밀번호가 일치하지 않습니다.');
+      return;
+    }
+
+    try {
+      const response = await fetch(`${this.apiBase}/auth/reset-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          token,
+          new_password: newPassword
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        alert('비밀번호가 성공적으로 변경되었습니다. 로그인해주세요.');
+        this.closeResetPasswordModal();
+      } else {
+        alert(data.detail || '비밀번호 재설정에 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('비밀번호 재설정 오류:', error);
+      alert('서버 연결에 실패했습니다.');
+    }
+  }
+
+  // ========================================
+  // 2단계 인증 (2FA)
+  // ========================================
+
+  async show2FASetupModal() {
+    const modal = document.getElementById('2fa-setup-modal');
+    if (!modal) return;
+
+    try {
+      const response = await fetch(`${this.apiBase}/auth/2fa/setup`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.authToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        // QR 코드와 시크릿 표시
+        document.getElementById('2fa-qr-code').src = data.qr_code_url;
+        document.getElementById('2fa-secret').value = data.secret;
+
+        // 성공 메시지 숨기고 설정 단계 표시
+        document.getElementById('2fa-setup-step1').style.display = 'block';
+        document.getElementById('2fa-setup-success').style.display = 'none';
+
+        modal.style.display = 'flex';
+        document.getElementById('2fa-verify-code').focus();
+      } else {
+        alert(data.detail || '2FA 설정을 시작할 수 없습니다.');
+      }
+    } catch (error) {
+      console.error('2FA 설정 오류:', error);
+      alert('서버 연결에 실패했습니다.');
+    }
+  }
+
+  close2FASetupModal() {
+    const modal = document.getElementById('2fa-setup-modal');
+    if (modal) {
+      modal.style.display = 'none';
+      // 폼 초기화
+      document.getElementById('2fa-verify-form').reset();
+    }
+  }
+
+  async handle2FAVerify(e) {
+    e.preventDefault();
+
+    const code = document.getElementById('2fa-verify-code').value.trim();
+
+    if (!code || code.length !== 6) {
+      alert('6자리 인증 코드를 입력하세요.');
+      return;
+    }
+
+    try {
+      const response = await fetch(`${this.apiBase}/auth/2fa/verify`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.authToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ code })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        // 성공 메시지 표시
+        document.getElementById('2fa-setup-step1').style.display = 'none';
+        document.getElementById('2fa-setup-success').style.display = 'block';
+
+        // 현재 사용자 정보 업데이트
+        if (this.auth.currentUser) {
+          this.auth.currentUser.totp_enabled = true;
+        }
+
+        // 설정 UI 업데이트
+        const toggle = document.getElementById('settings-2fa-enabled');
+        if (toggle) {
+          toggle.checked = true;
+        }
+      } else {
+        alert(data.detail || '인증 코드가 올바르지 않습니다.');
+      }
+    } catch (error) {
+      console.error('2FA 검증 오류:', error);
+      alert('서버 연결에 실패했습니다.');
+    }
+  }
+
+  async handle2FAToggle(e) {
+    const isEnabled = e.target.checked;
+
+    if (isEnabled) {
+      // 2FA 활성화 - 설정 모달 표시
+      await this.show2FASetupModal();
+    } else {
+      // 2FA 비활성화 확인
+      if (!confirm('2단계 인증을 비활성화하시겠습니까?')) {
+        e.target.checked = true; // 취소 시 다시 체크
+        return;
+      }
+
+      try {
+        const response = await fetch(`${this.apiBase}/auth/2fa/disable`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${this.authToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          alert('2단계 인증이 비활성화되었습니다.');
+
+          // 현재 사용자 정보 업데이트
+          if (this.auth.currentUser) {
+            this.auth.currentUser.totp_enabled = false;
+          }
+        } else {
+          alert(data.detail || '2FA 비활성화에 실패했습니다.');
+          e.target.checked = true; // 실패 시 다시 체크
+        }
+      } catch (error) {
+        console.error('2FA 비활성화 오류:', error);
+        alert('서버 연결에 실패했습니다.');
+        e.target.checked = true; // 오류 시 다시 체크
+      }
+    }
+  }
+
+  loadSecuritySettings() {
+    // 현재 사용자의 2FA 상태 로드
+    const toggle = document.getElementById('settings-2fa-enabled');
+    if (toggle && this.auth.currentUser) {
+      toggle.checked = this.auth.currentUser.totp_enabled || false;
+    }
+  }
+
+  // ========================================
+  // 북마크 / 저장한 메시지
+  // ========================================
+
+  async toggleBookmark(messageId) {
+    try {
+      // 현재 북마크 상태 확인
+      const checkResponse = await fetch(`${this.apiBase}/bookmarks/check/${messageId}`, {
+        headers: {
+          'Authorization': `Bearer ${this.authToken}`
+        }
+      });
+
+      const checkData = await checkResponse.json();
+
+      if (checkData.bookmarked) {
+        // 북마크 삭제
+        const response = await fetch(`${this.apiBase}/bookmarks/${messageId}`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${this.authToken}`
+          }
+        });
+
+        if (response.ok) {
+          console.log('북마크가 삭제되었습니다.');
+        }
+      } else {
+        // 북마크 추가
+        const response = await fetch(`${this.apiBase}/bookmarks`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${this.authToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ message_id: messageId })
+        });
+
+        if (response.ok) {
+          console.log('북마크에 추가되었습니다.');
+        } else {
+          const error = await response.json();
+          alert(error.detail || '북마크 추가에 실패했습니다.');
+        }
+      }
+    } catch (error) {
+      console.error('북마크 토글 오류:', error);
+      alert('서버 연결에 실패했습니다.');
+    }
+  }
+
+  async showSavedMessages() {
+    const modal = document.getElementById('saved-messages-modal');
+    if (!modal) return;
+
+    modal.style.display = 'flex';
+
+    // 저장한 메시지 로드
+    await this.loadSavedMessages();
+  }
+
+  closeSavedMessages() {
+    const modal = document.getElementById('saved-messages-modal');
+    if (modal) {
+      modal.style.display = 'none';
+    }
+  }
+
+  async loadSavedMessages() {
+    try {
+      const response = await fetch(`${this.apiBase}/bookmarks?limit=50&offset=0`, {
+        headers: {
+          'Authorization': `Bearer ${this.authToken}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to load bookmarks');
+      }
+
+      const data = await response.json();
+      this.renderSavedMessages(data.bookmarks);
+    } catch (error) {
+      console.error('저장한 메시지 로드 오류:', error);
+      alert('저장한 메시지를 불러올 수 없습니다.');
+    }
+  }
+
+  renderSavedMessages(bookmarks) {
+    const list = document.getElementById('saved-messages-list');
+    const empty = document.getElementById('saved-messages-empty');
+
+    if (!list) return;
+
+    // 빈 메시지 초기화
+    if (bookmarks.length === 0) {
+      if (empty) empty.style.display = 'block';
+      // 기존 메시지 제거
+      const existingMessages = list.querySelectorAll('.saved-message-item');
+      existingMessages.forEach(msg => msg.remove());
+      return;
+    }
+
+    if (empty) empty.style.display = 'none';
+
+    // 기존 메시지 제거
+    const existingMessages = list.querySelectorAll('.saved-message-item');
+    existingMessages.forEach(msg => msg.remove());
+
+    // 저장한 메시지 렌더링
+    bookmarks.forEach(item => {
+      const { bookmark, message } = item;
+      const messageEl = document.createElement('div');
+      messageEl.className = 'saved-message-item';
+      messageEl.innerHTML = `
+        <div class="saved-message-header">
+          <div class="saved-message-sender">
+            <div class="avatar">${message.sender?.avatar || 'U'}</div>
+            <span class="sender-name">${message.sender?.name || 'Unknown'}</span>
+            <span class="saved-message-time">${new Date(bookmark.created_at).toLocaleString('ko-KR')}</span>
+          </div>
+          <button class="icon-btn unsave-btn" data-message-id="${message.id}" title="저장 해제">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
+        <div class="saved-message-content">
+          ${message.content || ''}
+        </div>
+        ${message.attachments && message.attachments.length > 0 ? `
+          <div class="saved-message-attachments">
+            ${message.attachments.map(att => `<span class="attachment-badge">${att.name}</span>`).join('')}
+          </div>
+        ` : ''}
+      `;
+
+      // 저장 해제 버튼 이벤트
+      const unsaveBtn = messageEl.querySelector('.unsave-btn');
+      unsaveBtn.addEventListener('click', async () => {
+        await this.toggleBookmark(message.id);
+        await this.loadSavedMessages(); // 목록 새로고침
+      });
+
+      list.appendChild(messageEl);
+    });
   }
 
   logout() {
@@ -782,6 +1263,8 @@ class WorkMessenger {
 
     btnSettings?.addEventListener('click', () => {
       settingsModal.style.display = 'flex';
+      // 2FA 상태 로드
+      this.loadSecuritySettings();
     });
 
     closeSettings?.addEventListener('click', () => {
@@ -1224,6 +1707,25 @@ class WorkMessenger {
     const btnDM = document.getElementById('btn-dm');
     btnDM?.addEventListener('click', () => {
       this.showDMView();
+    });
+
+    // 저장한 메시지 버튼
+    const btnSavedMessages = document.getElementById('btn-saved-messages');
+    btnSavedMessages?.addEventListener('click', () => {
+      this.showSavedMessages();
+    });
+
+    // 저장한 메시지 모달 닫기
+    const closeSavedMessages = document.getElementById('close-saved-messages');
+    closeSavedMessages?.addEventListener('click', () => {
+      this.closeSavedMessages();
+    });
+
+    const savedMessagesModal = document.getElementById('saved-messages-modal');
+    savedMessagesModal?.addEventListener('click', (e) => {
+      if (e.target === savedMessagesModal) {
+        this.closeSavedMessages();
+      }
     });
 
     // 화이트보드 버튼
@@ -3856,81 +4358,110 @@ class WorkMessenger {
     };
   }
 
-  showMemberProfile(userId) {
+  async showMemberProfile(userId) {
     const modal = document.getElementById('member-profile-modal');
 
-    // 현재 서버의 멤버 정보 가져오기
-    if (!this.currentServer || !this.currentServer.members) {
-      console.error('서버 정보를 찾을 수 없습니다.');
-      return;
-    }
+    try {
+      // 백엔드 API에서 사용자 프로필 가져오기 (조직 정보 포함)
+      const response = await this.apiRequest(`/users/${userId}`);
 
-    const members = this.currentServer.members || [];
-    const member = members.find(m => m.id === userId);
-
-    if (!member) {
-      console.error('멤버를 찾을 수 없습니다.');
-      return;
-    }
-
-    // 프로필 정보 설정
-    document.getElementById('profile-avatar').textContent = member.avatar;
-    document.getElementById('profile-name').textContent = member.name;
-    document.getElementById('profile-nickname').textContent = member.nickname || '';
-
-    // 역할 한글 변환
-    const roleMap = {
-      'owner': '소유자',
-      'admin': '관리자',
-      'moderator': '모더레이터',
-      'member': '멤버'
-    };
-    document.getElementById('profile-role').textContent = roleMap[member.role] || member.role;
-
-    // 상태 한글 변환
-    const statusMap = {
-      'online': '온라인',
-      'away': '자리비움',
-      'offline': '오프라인'
-    };
-    document.getElementById('profile-status').textContent = statusMap[member.status] || member.status;
-
-    // 현재 사용자의 역할 확인 (owner, admin만 역할 변경 가능)
-    const currentUserId = this.auth?.currentUser?.id || this.user?.id;
-    const currentUserMember = members.find(m => m.id === currentUserId);
-    const canChangeRole = currentUserMember && ['owner', 'admin'].includes(currentUserMember.role) && userId !== currentUserId;
-
-    // 역할 변경 UI 표시/숨김
-    const roleActions = document.getElementById('profile-role-actions');
-    const roleSelect = document.getElementById('profile-role-select');
-
-    if (canChangeRole) {
-      roleActions.style.display = 'flex';
-      roleSelect.value = member.role;
-      // 선택된 멤버 ID 저장 (역할 변경 시 사용)
-      roleActions.dataset.userId = userId;
-    } else {
-      roleActions.style.display = 'none';
-    }
-
-    // 모달 표시
-    modal.style.display = 'flex';
-
-    // ESC 키로 닫기
-    const closeHandler = (e) => {
-      if (e.key === 'Escape') {
-        modal.style.display = 'none';
-        document.removeEventListener('keydown', closeHandler);
+      if (!response) {
+        console.error('프로필을 불러올 수 없습니다.');
+        return;
       }
-    };
-    document.addEventListener('keydown', closeHandler);
 
-    // 오버레이 클릭으로 닫기
-    modal.onclick = (e) => {
-      if (e.target === modal) {
-        modal.style.display = 'none';
+      const userProfile = response;
+
+      // 현재 서버의 멤버 정보 가져오기 (역할, 닉네임용)
+      let member = null;
+      if (this.currentServer && this.currentServer.members) {
+        const members = this.currentServer.members || [];
+        member = members.find(m => m.id === userId);
       }
-    };
+
+      // 프로필 정보 설정
+      document.getElementById('profile-avatar').textContent = userProfile.avatar || userProfile.name?.[0] || 'U';
+      document.getElementById('profile-name').textContent = userProfile.name || '';
+      document.getElementById('profile-nickname').textContent = member?.nickname || '';
+
+      // 역할 한글 변환
+      const roleMap = {
+        'owner': '소유자',
+        'admin': '관리자',
+        'moderator': '모더레이터',
+        'member': '멤버'
+      };
+      document.getElementById('profile-role').textContent = member ? (roleMap[member.role] || member.role) : '-';
+
+      // 상태 한글 변환
+      const statusMap = {
+        'online': '온라인',
+        'away': '자리비움',
+        'offline': '오프라인'
+      };
+      document.getElementById('profile-status').textContent = member ? (statusMap[member.status] || member.status) : '-';
+
+      // 조직 정보 설정
+      document.getElementById('profile-department').textContent = userProfile.department || '-';
+      document.getElementById('profile-job-title').textContent = userProfile.job_title || '-';
+      document.getElementById('profile-extension').textContent = userProfile.extension || '-';
+      document.getElementById('profile-phone').textContent = userProfile.phone || '-';
+      document.getElementById('profile-location').textContent = userProfile.location || '-';
+
+      // 현재 사용자 확인
+      const currentUserId = this.auth?.currentUser?.id || this.user?.id;
+      const isOwnProfile = currentUserId === userId;
+
+      // 프로필 편집 버튼 표시/숨김 (본인 프로필만 편집 가능)
+      const editBtn = document.getElementById('btn-edit-profile');
+      if (isOwnProfile) {
+        editBtn.style.display = 'block';
+        editBtn.dataset.userId = userId;
+      } else {
+        editBtn.style.display = 'none';
+      }
+
+      // 역할 변경 UI 표시/숨김 (owner, admin만 다른 사람 역할 변경 가능)
+      const roleActions = document.getElementById('profile-role-actions');
+      const roleSelect = document.getElementById('profile-role-select');
+
+      if (member && this.currentServer && this.currentServer.members) {
+        const currentUserMember = this.currentServer.members.find(m => m.id === currentUserId);
+        const canChangeRole = currentUserMember && ['owner', 'admin'].includes(currentUserMember.role) && !isOwnProfile;
+
+        if (canChangeRole) {
+          roleActions.style.display = 'flex';
+          roleSelect.value = member.role;
+          roleActions.dataset.userId = userId;
+        } else {
+          roleActions.style.display = 'none';
+        }
+      } else {
+        roleActions.style.display = 'none';
+      }
+
+      // 모달 표시
+      modal.style.display = 'flex';
+
+      // ESC 키로 닫기
+      const closeHandler = (e) => {
+        if (e.key === 'Escape') {
+          modal.style.display = 'none';
+          document.removeEventListener('keydown', closeHandler);
+        }
+      };
+      document.addEventListener('keydown', closeHandler);
+
+      // 오버레이 클릭으로 닫기
+      modal.onclick = (e) => {
+        if (e.target === modal) {
+          modal.style.display = 'none';
+        }
+      };
+    } catch (error) {
+      console.error('프로필 조회 오류:', error);
+      this.showToast('프로필을 불러올 수 없습니다.', 'error');
+    }
   }
 
   async updateMemberRole() {
@@ -3980,6 +4511,126 @@ class WorkMessenger {
     } catch (error) {
       console.error('역할 변경 오류:', error);
       this.showToast(`역할 변경 실패: ${error.message}`, 'error');
+    }
+  }
+
+  async showEditProfileModal() {
+    const modal = document.getElementById('edit-profile-modal');
+
+    try {
+      // 현재 사용자 프로필 가져오기
+      const currentUserId = this.auth?.currentUser?.id || this.user?.id;
+      const response = await this.apiRequest(`/users/${currentUserId}`);
+
+      if (!response) {
+        console.error('프로필을 불러올 수 없습니다.');
+        return;
+      }
+
+      const userProfile = response;
+
+      // 폼에 현재 값 설정
+      document.getElementById('edit-profile-name').value = userProfile.name || '';
+      document.getElementById('edit-profile-email').value = userProfile.email || '';
+      document.getElementById('edit-profile-department').value = userProfile.department || '';
+      document.getElementById('edit-profile-job-title').value = userProfile.job_title || '';
+      document.getElementById('edit-profile-extension').value = userProfile.extension || '';
+      document.getElementById('edit-profile-phone').value = userProfile.phone || '';
+      document.getElementById('edit-profile-location').value = userProfile.location || '';
+
+      // 모달 표시
+      modal.style.display = 'flex';
+
+      // ESC 키로 닫기
+      const closeHandler = (e) => {
+        if (e.key === 'Escape') {
+          modal.style.display = 'none';
+          document.removeEventListener('keydown', closeHandler);
+        }
+      };
+      document.addEventListener('keydown', closeHandler);
+
+      // 오버레이 클릭으로 닫기
+      modal.onclick = (e) => {
+        if (e.target === modal) {
+          modal.style.display = 'none';
+        }
+      };
+    } catch (error) {
+      console.error('프로필 편집 모달 오류:', error);
+      this.showToast('프로필을 불러올 수 없습니다.', 'error');
+    }
+  }
+
+  async saveProfileEdits() {
+    try {
+      // 폼 데이터 수집
+      const profileData = {
+        name: document.getElementById('edit-profile-name').value.trim(),
+        email: document.getElementById('edit-profile-email').value.trim(),
+        department: document.getElementById('edit-profile-department').value.trim() || null,
+        job_title: document.getElementById('edit-profile-job-title').value.trim() || null,
+        extension: document.getElementById('edit-profile-extension').value.trim() || null,
+        phone: document.getElementById('edit-profile-phone').value.trim() || null,
+        location: document.getElementById('edit-profile-location').value.trim() || null
+      };
+
+      // 필수 필드 확인
+      if (!profileData.name) {
+        this.showToast('이름을 입력해주세요.', 'error');
+        return;
+      }
+
+      if (!profileData.email) {
+        this.showToast('이메일을 입력해주세요.', 'error');
+        return;
+      }
+
+      // 이메일 형식 확인
+      const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailPattern.test(profileData.email)) {
+        this.showToast('올바른 이메일 형식을 입력해주세요.', 'error');
+        return;
+      }
+
+      // API 호출
+      const response = await this.apiRequest('/profile', {
+        method: 'PUT',
+        body: JSON.stringify(profileData)
+      });
+
+      if (!response) {
+        throw new Error('프로필 업데이트 실패');
+      }
+
+      // 현재 사용자 정보 업데이트
+      if (this.auth?.currentUser) {
+        this.auth.currentUser = {
+          ...this.auth.currentUser,
+          name: response.name,
+          email: response.email,
+          department: response.department,
+          job_title: response.job_title,
+          extension: response.extension,
+          phone: response.phone,
+          location: response.location
+        };
+      }
+
+      // 프로필 모달 닫기
+      document.getElementById('edit-profile-modal').style.display = 'none';
+
+      // 멤버 프로필 모달이 열려있으면 업데이트
+      const memberProfileModal = document.getElementById('member-profile-modal');
+      if (memberProfileModal.style.display === 'flex') {
+        const currentUserId = this.auth?.currentUser?.id || this.user?.id;
+        await this.showMemberProfile(currentUserId);
+      }
+
+      this.showToast('프로필이 성공적으로 업데이트되었습니다.', 'success');
+    } catch (error) {
+      console.error('프로필 저장 오류:', error);
+      this.showToast(`프로필 저장 실패: ${error.message}`, 'error');
     }
   }
 
@@ -4454,6 +5105,9 @@ class WorkMessenger {
         break;
       case 'pin':
         this.togglePinMessage(message.id, channelId);
+        break;
+      case 'bookmark':
+        await this.toggleBookmark(message.id);
         break;
       case 'move':
         await this.moveMessageToChannel(message, channelId);
