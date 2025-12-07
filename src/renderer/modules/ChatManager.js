@@ -1,3 +1,4 @@
+
 export class ChatManager {
     constructor(app) {
         this.app = app;
@@ -185,18 +186,23 @@ export class ChatManager {
     }
 
     formatMessage(content) {
-        // Simple markdown formatter placeholder
-        // In real refactor, copy the full markdown parser from app.js
         if (!content) return '';
-        return content
-            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-            .replace(/__(.*?)__/g, '<u>$1</u>')
-            .replace(/\n/g, '<br>');
+        // Sanitize raw HTML from RTE
+        // ALLOWED_TAGS and ATTRs can be customized as needed.
+        return DOMPurify.sanitize(content, {
+            ALLOWED_TAGS: ['b', 'i', 'u', 's', 'strong', 'em', 'strike', 'ul', 'ol', 'li', 'br', 'p', 'div', 'span', 'code', 'pre'],
+            ALLOWED_ATTR: ['style', 'class']
+        });
     }
 
     async sendMessage() {
         const input = document.getElementById('message-input');
-        const content = input.value.trim();
+        // Get HTML content
+        let content = input.innerHTML;
+
+        // Clean up empty paragraphs or brs if strictly empty
+        if (content === '<br>') content = '';
+
         const channelId = this.app.serverManager.currentChannel?.id;
 
         if (!content && this.attachedFiles.length === 0) return;
@@ -206,7 +212,7 @@ export class ChatManager {
         this.emitTyping(false);
 
         const messageData = {
-            content,
+            content, // Sending HTML directly
             channelId,
             files: this.attachedFiles,
             sender: this.app.auth.currentUser || { name: 'Guest', id: 'guest' }
@@ -226,7 +232,7 @@ export class ChatManager {
 
     resetInput() {
         const input = document.getElementById('message-input');
-        if (input) input.value = '';
+        if (input) input.innerHTML = '';
         this.attachedFiles = [];
         this.isTyping = false;
 
@@ -245,6 +251,7 @@ export class ChatManager {
         this.typingTimeout = null;
 
         if (input) {
+            // contenteditable keydown
             input.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
@@ -255,12 +262,13 @@ export class ChatManager {
             });
 
             input.addEventListener('input', () => {
+                const content = input.innerHTML.trim();
+                // Check if content is empty (sometimes <br> is left)
+                const isEmpty = content === '' || content === '<br>';
+
                 if (sendBtn) {
-                    sendBtn.disabled = input.value.trim() === '' && this.attachedFiles.length === 0;
+                    sendBtn.disabled = isEmpty && this.attachedFiles.length === 0;
                 }
-                // Auto-resize logic could go here
-                input.style.height = 'auto';
-                input.style.height = input.scrollHeight + 'px';
             });
 
             // Focus event to mark as read

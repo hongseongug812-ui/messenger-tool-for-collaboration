@@ -2830,6 +2830,57 @@ async def channel_read(sid, data):
           room=channel_id
       )
 
+# ========================================
+# WebRTC Signaling
+# ========================================
+
+@sio.event
+async def call_join(sid, data):
+  room = data.get("currentChannelId") or data.get("channelId")
+  if not room: return
+  
+  # Tell others in room that a user joined the call
+  await sio.emit("call_user_joined", {"signal": data.get("signal"), "callerId": sid}, room=room, skip_sid=sid)
+
+@sio.event
+async def offer(sid, data):
+  # data: { targetSid, description, channelId }
+  target_sid = data.get("targetSid")
+  if target_sid:
+    await sio.emit("offer", {
+      "sdp": data.get("sdp"),
+      "callerId": sid,
+      "channelId": data.get("channelId")
+    }, to=target_sid)
+
+@sio.event
+async def answer(sid, data):
+  # data: { targetSid, sdp, channelId }
+  target_sid = data.get("targetSid")
+  if target_sid:
+    await sio.emit("answer", {
+      "sdp": data.get("sdp"),
+      "callerId": sid,
+      "channelId": data.get("channelId")
+    }, to=target_sid)
+
+@sio.event
+async def ice_candidate(sid, data):
+  # data: { targetSid, candidate, channelId }
+  target_sid = data.get("targetSid")
+  if target_sid:
+    await sio.emit("ice_candidate", {
+      "candidate": data.get("candidate"),
+      "callerId": sid,
+      "channelId": data.get("channelId")
+    }, to=target_sid)
+
+@sio.event
+async def call_leave(sid, data):
+    room = data.get("channelId")
+    if room:
+        await sio.emit("call_user_left", {"id": sid}, room=room)
+
 
 # ========================================
 # 검색 API

@@ -528,874 +528,902 @@
             </div>
           </aside>
         </div>
-
         <!-- 입력 영역 리사이저 -->
         <div class="resizer" id="input-resizer" data-direction="horizontal"></div>
 
         <!-- 입력 영역 -->
+        <div class="chat-header" id="chat-header" style="display: none;">
+          <div class="header-left">
+            <h3 class="chat-title" id="chat-title"># 일반</h3>
+            <span class="chat-topic">채널 주제가 여기에 표시됩니다.</span>
+          </div>
+          <div class="header-right">
+            <button class="icon-btn" title="음성/화상 통화" id="start-call-btn" onclick="app.webRTCManager.startCall()">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M23 7l-7 5 7 5V7z" />
+                <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+              </svg>
+            </button>
+            <div class="search-bar">
+              <!-- ... existing search bar ... -->
+              <input type="text" placeholder="검색">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                <circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2" />
+                <path d="M21 21L16.65 16.65" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+              </svg>
+            </div>
+            <button class="icon-btn" title="알림 설정">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0" stroke="currentColor"
+                  stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </button>
+            <button class="icon-btn" title="멤버 목록" onclick="app.uiManager.toggleMembersList()">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="currentColor" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round" />
+                <circle cx="9" cy="7" r="4" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                  stroke-linejoin="round" />
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                  stroke-linejoin="round" />
+                <path d="M16 3.13a4 4 0 0 1 0 7.75" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                  stroke-linejoin="round" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Chat Area -->
+        <div class="messages-container" id="messages-container" style="display: none;">
+          <!-- Messages injected here -->
+          <div id="messages">
+            <!-- 메시지들이 동적으로 추가됨 -->
+          </div>
+        </div>
+
+        <!-- Input Area -->
         <div class="input-area" id="input-area" style="display: none;">
-          <!-- 마크다운 툴바 -->
-          <div class="markdown-toolbar">
-            <button class="toolbar-btn" data-format="bold" title="굵게 (Ctrl+B)">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6zM6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"
-                  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+          <div class="input-tools">
+            <button class="icon-btn attach-btn" title="첨부파일" id="attach-btn">
+              <!-- ... -->
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"
+                  stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>
               </svg>
             </button>
-            <button class="toolbar-btn" data-format="italic" title="기울임 (Ctrl+I)">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <path d="M19 4h-9M14 20H5M15 4L9 20" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                  stroke-linejoin="round" />
-              </svg>
-            </button>
-            <button class="toolbar-btn" data-format="code" title="인라인 코드 (Ctrl+E)">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <path d="M16 18l6-6-6-6M8 6l-6 6 6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                  stroke-linejoin="round" />
-              </svg>
-            </button>
-            <button class="toolbar-btn" data-format="codeblock" title="코드블록">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2" />
-                <path d="M9 9l-3 3 3 3M15 9l3 3-3 3" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                  stroke-linejoin="round" />
-              </svg>
-            </button>
-            <div class="toolbar-divider"></div>
-            <button class="toolbar-btn" data-format="h1" title="제목 1">
-              <span style="font-weight: 600;">H1</span>
-            </button>
-            <button class="toolbar-btn" data-format="h2" title="제목 2">
-              <span style="font-weight: 600; font-size: 13px;">H2</span>
-            </button>
-            <button class="toolbar-btn" data-format="h3" title="제목 3">
-              <span style="font-weight: 600; font-size: 12px;">H3</span>
-            </button>
-            <div class="toolbar-divider"></div>
-            <button class="toolbar-btn" data-format="ul" title="글머리 기호 목록">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" stroke="currentColor" stroke-width="2"
+            <button class="icon-btn emoji-btn" id="emoji-btn" title="이모지">
+              <!-- ... -->
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5" />
+                <path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01" stroke="currentColor" stroke-width="2"
                   stroke-linecap="round" />
               </svg>
             </button>
-            <button class="toolbar-btn" data-format="ol" title="번호 매기기 목록">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <path d="M10 6h11M10 12h11M10 18h11M4 6h1v4M4 10h2M6 18H4c0-1 2-2 2-3s-1-1.5-2-1" stroke="currentColor"
-                  stroke-width="2" stroke-linecap="round" />
+          </div>
+
+          <div class="input-container">
+            <!-- Typing Indicator -->
+            <div id="typing-indicator" class="typing-indicator" style="display: none;"></div>
+
+            <!-- Rich Text Editor Replacement -->
+            <div class="rich-text-container">
+              <div class="rte-toolbar">
+                <button class="rte-btn" onclick="document.execCommand('bold', false, null)" title="Bold">
+                  <b>B</b>
+                </button>
+                <button class="rte-btn" onclick="document.execCommand('italic', false, null)" title="Italic">
+                  <i>I</i>
+                </button>
+                <button class="rte-btn" onclick="document.execCommand('underline', false, null)" title="Underline">
+                  <u>U</u>
+                </button>
+                <button class="rte-btn" onclick="document.execCommand('strikeThrough', false, null)"
+                  title="Strikethrough">
+                  <s>S</s>
+                </button>
+                <div style="width: 1px; height: 16px; background: var(--border-light); margin: 0 4px;"></div>
+                <button class="rte-btn" onclick="document.execCommand('insertUnorderedList', false, null)" title="List">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="8" y1="6" x2="21" y2="6"></line>
+                    <line x1="8" y1="12" x2="21" y2="12"></line>
+                    <line x1="8" y1="18" x2="21" y2="18"></line>
+                    <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                    <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                    <line x1="3" y1="18" x2="3.01" y2="18"></line>
+                  </svg>
+                </button>
+              </div>
+              <div id="message-input" class="rte-editor" contenteditable="true" placeholder="메시지를 입력하세요..."></div>
+            </div>
+
+            <button class="send-btn" id="send-btn" disabled title="보내기">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke="currentColor" stroke-width="1.5"
+                  stroke-linecap="round" stroke-linejoin="round" />
               </svg>
             </button>
-            <button class="toolbar-btn" data-format="quote" title="인용구">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <path d="M6 15h15M6 9h15" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-                <div class="input-container">
-                  <!-- Typing Indicator -->
-                  <div id="typing-indicator" class="typing-indicator" style="display: none;"></div>
+          </div>
+          <div class="input-hints">
+            <span><kbd>Enter</kbd> 전송</span>
+            <span><kbd>Shift + Enter</kbd> 줄바꿈</span>
+          </div>
 
-                  <button class="icon-btn attach-btn" title="첨부파일" id="attach-btn">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                      <path
-                        d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"
-                        stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-                    </svg>
-                  </button>
-                  <button class="icon-btn emoji-btn" id="emoji-btn" title="이모지">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                      <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5" />
-                      <path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01" stroke="currentColor" stroke-width="2"
-                        stroke-linecap="round" />
-                    </svg>
-                  </button>
-                  <div class="input-wrapper">
-                    <textarea id="message-input" placeholder="메시지를 입력하세요... (마크다운 지원)" rows="1"></textarea>
-                  </div>
-                  <button class="send-btn" id="send-btn" disabled title="보내기">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                      <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke="currentColor" stroke-width="1.5"
-                        stroke-linecap="round" stroke-linejoin="round" />
-                    </svg>
-                  </button>
-                </div>
-                <div class="input-hints">
-                  <span><kbd>Enter</kbd> 전송</span>
-                  <span><kbd>Shift + Enter</kbd> 줄바꿈</span>
-                </div>
+          <!-- 자동완성 드롭다운 -->
+          <div class="autocomplete-dropdown" id="autocomplete-dropdown" style="display: none;">
+            <div class="autocomplete-items" id="autocomplete-items"></div>
+          </div>
 
-                <!-- 자동완성 드롭다운 -->
-                <div class="autocomplete-dropdown" id="autocomplete-dropdown" style="display: none;">
-                  <div class="autocomplete-items" id="autocomplete-items"></div>
-                </div>
-
-                <!-- 이모지 피커 -->
-                <div class="emoji-picker" id="emoji-picker" style="display: none;">
-                  <div class="emoji-picker-header">
-                    <input type="text" class="emoji-search" id="emoji-search" placeholder="이모지 검색...">
-                  </div>
-                  <div class="emoji-categories" id="emoji-categories"></div>
-                  <div class="emoji-grid" id="emoji-grid"></div>
-                </div>
+          <!-- 이모지 피커 -->
+          <div class="emoji-picker" id="emoji-picker" style="display: none;">
+            <div class="emoji-picker-header">
+              <input type="text" class="emoji-search" id="emoji-search" placeholder="이모지 검색...">
+            </div>
+            <div class="emoji-categories" id="emoji-categories"></div>
+            <div class="emoji-grid" id="emoji-grid"></div>
           </div>
         </div>
-      </section>
-    </main>
+  </div>
+  </section>
+  </main>
 
-    <!-- 설정 모달 -->
-    <div class="modal-overlay" id="settings-modal" style="display: none;">
-      <div class="modal">
-        <div class="modal-header">
-          <h3>설정</h3>
-          <button class="icon-btn modal-close" id="close-settings">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-              <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-            </svg>
-          </button>
-        </div>
-        <div class="modal-body">
-          <div class="settings-section">
-            <h4>프로필</h4>
-            <div class="settings-item">
-              <label>이름</label>
-              <input type="text" id="settings-name" placeholder="이름 입력">
-            </div>
-            <div class="settings-item">
-              <label>상태 메시지</label>
-              <input type="text" id="settings-status" placeholder="상태 메시지">
-            </div>
-          </div>
-
-          <div class="settings-section">
-            <h4>알림</h4>
-            <div class="settings-item toggle">
-              <label>데스크톱 알림</label>
-              <label class="switch">
-                <input type="checkbox" id="settings-notifications" checked>
-                <span class="slider"></span>
-              </label>
-            </div>
-            <div class="settings-item toggle">
-              <label>알림 소리</label>
-              <label class="switch">
-                <input type="checkbox" id="settings-sound" checked>
-                <span class="slider"></span>
-              </label>
-            </div>
-            <div class="settings-item">
-              <button class="btn btn-secondary" id="btn-notification-settings" style="width: 100%; margin-top: 8px;">
-                채널별 알림 설정
-              </button>
-            </div>
-          </div>
-
-          <div class="settings-section">
-            <h4>보안</h4>
-            <div class="settings-item">
-              <label>비밀번호 변경</label>
-              <button class="btn btn-secondary" id="btn-change-password" style="width: 100%; margin-top: 8px;">
-                비밀번호 변경
-              </button>
-            </div>
-            <div class="settings-item toggle">
-              <div>
-                <label>2단계 인증 (2FA)</label>
-                <p style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
-                  로그인 시 추가 보안 코드를 요구합니다
-                </p>
-              </div>
-              <label class="switch">
-                <input type="checkbox" id="settings-2fa-enabled">
-                <span class="slider"></span>
-              </label>
-            </div>
-          </div>
-
-          <div class="settings-section">
-            <h4>서버 연결</h4>
-            <div class="settings-item">
-              <label>서버 상태</label>
-              <span class="connection-status" id="connection-status">
-                <span class="status-dot disconnected"></span>
-                연결 안됨
-              </span>
-            </div>
-          </div>
-        </div>
+  <!-- 설정 모달 -->
+  <div class="modal-overlay" id="settings-modal" style="display: none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>설정</h3>
+        <button class="icon-btn modal-close" id="close-settings">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+            <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+        </button>
       </div>
-    </div>
-
-    <!-- 도움말 모달 -->
-    <div class="modal-overlay" id="help-modal" style="display: none;">
-      <div class="modal help-modal">
-        <div class="modal-header">
-          <h2>💬 슬래시 명령어</h2>
-          <button class="icon-btn modal-close" onclick="document.getElementById('help-modal').style.display='none'">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-              <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-            </svg>
-          </button>
-        </div>
-        <div class="modal-body">
-          <div class="help-commands" id="help-commands-list">
-            <!-- 명령어 목록이 여기에 동적으로 추가됩니다 -->
+      <div class="modal-body">
+        <div class="settings-section">
+          <h4>프로필</h4>
+          <div class="settings-item">
+            <label>이름</label>
+            <input type="text" id="settings-name" placeholder="이름 입력">
+          </div>
+          <div class="settings-item">
+            <label>상태 메시지</label>
+            <input type="text" id="settings-status" placeholder="상태 메시지">
           </div>
         </div>
-        <div class="modal-footer">
-          <button class="btn btn-secondary" onclick="document.getElementById('help-modal').style.display='none'">
-            닫기
-          </button>
-        </div>
-      </div>
-    </div>
 
-    <!-- 멤버 프로필 모달 -->
-    <div class="modal-overlay" id="member-profile-modal" style="display: none;">
-      <div class="modal member-profile-modal">
-        <div class="modal-header">
-          <h2>👤 프로필</h2>
-          <button class="icon-btn modal-close"
-            onclick="document.getElementById('member-profile-modal').style.display='none'">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-              <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-            </svg>
-          </button>
-        </div>
-        <div class="modal-body">
-          <div class="profile-content">
-            <div class="profile-avatar-large" id="profile-avatar"></div>
-            <div class="profile-info">
-              <div class="profile-field">
-                <div class="profile-field-label">이름</div>
-                <div class="profile-field-value" id="profile-name"></div>
-              </div>
-              <div class="profile-field">
-                <div class="profile-field-label">닉네임</div>
-                <div class="profile-field-value" id="profile-nickname"></div>
-              </div>
-              <div class="profile-field">
-                <div class="profile-field-label">역할</div>
-                <div class="profile-field-value" id="profile-role"></div>
-              </div>
-              <div class="profile-field">
-                <div class="profile-field-label">상태</div>
-                <div class="profile-field-value" id="profile-status"></div>
-              </div>
-
-              <!-- 조직 정보 (업무용) -->
-              <div class="profile-section-title">조직 정보</div>
-              <div class="profile-field">
-                <div class="profile-field-label">부서</div>
-                <div class="profile-field-value" id="profile-department">-</div>
-              </div>
-              <div class="profile-field">
-                <div class="profile-field-label">직책</div>
-                <div class="profile-field-value" id="profile-job-title">-</div>
-              </div>
-              <div class="profile-field">
-                <div class="profile-field-label">내선번호</div>
-                <div class="profile-field-value" id="profile-extension">-</div>
-              </div>
-              <div class="profile-field">
-                <div class="profile-field-label">회사 번호</div>
-                <div class="profile-field-value" id="profile-phone">-</div>
-              </div>
-              <div class="profile-field">
-                <div class="profile-field-label">근무지</div>
-                <div class="profile-field-value" id="profile-location">-</div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <div id="profile-role-actions" style="display: none; gap: 8px; margin-right: auto;">
-            <select id="profile-role-select" class="role-select">
-              <option value="owner">소유자</option>
-              <option value="admin">관리자</option>
-              <option value="moderator">모더레이터</option>
-              <option value="member">멤버</option>
-            </select>
-            <button class="btn btn-primary" onclick="window.app.updateMemberRole()">역할 변경</button>
-          </div>
-          <button class="btn btn-primary" id="btn-edit-profile" onclick="window.app.showEditProfileModal()"
-            style="display: none; margin-right: auto;">
-            프로필 편집
-          </button>
-          <button class="btn btn-secondary"
-            onclick="document.getElementById('member-profile-modal').style.display='none'">
-            닫기
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 프로필 편집 모달 -->
-    <div class="modal-overlay" id="edit-profile-modal" style="display: none;">
-      <div class="modal edit-profile-modal">
-        <div class="modal-header">
-          <h2>프로필 편집</h2>
-          <button class="icon-btn modal-close"
-            onclick="document.getElementById('edit-profile-modal').style.display='none'">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-              <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-            </svg>
-          </button>
-        </div>
-        <div class="modal-body">
-          <form id="edit-profile-form">
-            <div class="form-group">
-              <label for="edit-profile-name">이름</label>
-              <input type="text" id="edit-profile-name" placeholder="이름을 입력하세요">
-            </div>
-
-            <div class="form-group">
-              <label for="edit-profile-email">이메일</label>
-              <input type="email" id="edit-profile-email" placeholder="이메일을 입력하세요">
-            </div>
-
-            <div class="profile-section-title" style="margin-top: 16px;">조직 정보</div>
-
-            <div class="form-group">
-              <label for="edit-profile-department">부서</label>
-              <input type="text" id="edit-profile-department" placeholder="예: 개발팀, 기획팀, 영업팀">
-            </div>
-
-            <div class="form-group">
-              <label for="edit-profile-job-title">직책</label>
-              <input type="text" id="edit-profile-job-title" placeholder="예: 주임, 대리, 과장, 차장, 부장">
-            </div>
-
-            <div class="form-group">
-              <label for="edit-profile-extension">내선번호</label>
-              <input type="text" id="edit-profile-extension" placeholder="예: 1234">
-            </div>
-
-            <div class="form-group">
-              <label for="edit-profile-phone">회사 번호</label>
-              <input type="text" id="edit-profile-phone" placeholder="예: 02-1234-5678">
-            </div>
-
-            <div class="form-group">
-              <label for="edit-profile-location">근무지</label>
-              <input type="text" id="edit-profile-location" placeholder="예: 본사, 강남지점, 재택">
-            </div>
-          </form>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-secondary"
-            onclick="document.getElementById('edit-profile-modal').style.display='none'">
-            취소
-          </button>
-          <button class="btn btn-primary" onclick="window.app.saveProfileEdits()">
-            저장
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 입력 다이얼로그 모달 -->
-    <div class="modal-overlay" id="input-dialog-overlay" style="display: none;">
-      <div class="modal input-dialog">
-        <div class="modal-header">
-          <h3 id="input-dialog-title">입력</h3>
-          <button class="icon-btn modal-close" id="input-dialog-close">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-              <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-            </svg>
-          </button>
-        </div>
-        <div class="modal-body">
-          <input type="text" id="input-dialog-input" placeholder="입력하세요">
-        </div>
-        <div class="modal-actions">
-          <button class="btn-cancel" id="input-dialog-cancel">취소</button>
-          <button class="btn-primary" id="input-dialog-ok">확인</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 채널 권한 설정 모달 -->
-    <div class="modal-overlay" id="channel-permission-dialog" style="display: none;">
-      <div class="modal channel-permission-modal">
-        <div class="modal-header">
-          <h3 id="channel-permission-title">채널 설정</h3>
-          <button class="icon-btn modal-close" id="channel-permission-close">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-              <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-            </svg>
-          </button>
-        </div>
-        <div class="modal-body">
-          <div class="form-group">
-            <label for="channel-perm-name">채널 이름</label>
-            <input type="text" id="channel-perm-name" placeholder="채널 이름을 입력하세요">
-          </div>
-
-          <div class="form-group">
-            <label class="checkbox-label">
-              <input type="checkbox" id="channel-perm-private">
-              <span>비공개 채널</span>
+        <div class="settings-section">
+          <h4>알림</h4>
+          <div class="settings-item toggle">
+            <label>데스크톱 알림</label>
+            <label class="switch">
+              <input type="checkbox" id="settings-notifications" checked>
+              <span class="slider"></span>
             </label>
-            <small class="form-hint">비공개 채널은 허용된 역할/멤버만 접근할 수 있습니다</small>
           </div>
-
-          <div class="form-group" id="channel-perm-access-group" style="display: none;">
-            <label for="channel-perm-roles">접근 허용 역할 (쉼표로 구분)</label>
-            <input type="text" id="channel-perm-roles" placeholder="예: admin, moderator">
-            <small class="form-hint">비어있으면 역할 제한 없음</small>
+          <div class="settings-item toggle">
+            <label>알림 소리</label>
+            <label class="switch">
+              <input type="checkbox" id="settings-sound" checked>
+              <span class="slider"></span>
+            </label>
           </div>
+          <div class="settings-item">
+            <button class="btn btn-secondary" id="btn-notification-settings" style="width: 100%; margin-top: 8px;">
+              채널별 알림 설정
+            </button>
+          </div>
+        </div>
 
-          <div class="form-group" id="channel-perm-members-group" style="display: none;">
-            <label for="channel-perm-members">접근 허용 멤버 ID (쉼표로 구분)</label>
-            <input type="text" id="channel-perm-members" placeholder="예: user1, user2">
-            <small class="form-hint">비어있으면 멤버 제한 없음</small>
+        <div class="settings-section">
+          <h4>보안</h4>
+          <div class="settings-item">
+            <label>비밀번호 변경</label>
+            <button class="btn btn-secondary" id="btn-change-password" style="width: 100%; margin-top: 8px;">
+              비밀번호 변경
+            </button>
+          </div>
+          <div class="settings-item toggle">
+            <div>
+              <label>2단계 인증 (2FA)</label>
+              <p style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
+                로그인 시 추가 보안 코드를 요구합니다
+              </p>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="settings-2fa-enabled">
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h4>서버 연결</h4>
+          <div class="settings-item">
+            <label>서버 상태</label>
+            <span class="connection-status" id="connection-status">
+              <span class="status-dot disconnected"></span>
+              연결 안됨
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 도움말 모달 -->
+  <div class="modal-overlay" id="help-modal" style="display: none;">
+    <div class="modal help-modal">
+      <div class="modal-header">
+        <h2>💬 슬래시 명령어</h2>
+        <button class="icon-btn modal-close" onclick="document.getElementById('help-modal').style.display='none'">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+            <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="help-commands" id="help-commands-list">
+          <!-- 명령어 목록이 여기에 동적으로 추가됩니다 -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="document.getElementById('help-modal').style.display='none'">
+          닫기
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 멤버 프로필 모달 -->
+  <div class="modal-overlay" id="member-profile-modal" style="display: none;">
+    <div class="modal member-profile-modal">
+      <div class="modal-header">
+        <h2>👤 프로필</h2>
+        <button class="icon-btn modal-close"
+          onclick="document.getElementById('member-profile-modal').style.display='none'">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+            <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="profile-content">
+          <div class="profile-avatar-large" id="profile-avatar"></div>
+          <div class="profile-info">
+            <div class="profile-field">
+              <div class="profile-field-label">이름</div>
+              <div class="profile-field-value" id="profile-name"></div>
+            </div>
+            <div class="profile-field">
+              <div class="profile-field-label">닉네임</div>
+              <div class="profile-field-value" id="profile-nickname"></div>
+            </div>
+            <div class="profile-field">
+              <div class="profile-field-label">역할</div>
+              <div class="profile-field-value" id="profile-role"></div>
+            </div>
+            <div class="profile-field">
+              <div class="profile-field-label">상태</div>
+              <div class="profile-field-value" id="profile-status"></div>
+            </div>
+
+            <!-- 조직 정보 (업무용) -->
+            <div class="profile-section-title">조직 정보</div>
+            <div class="profile-field">
+              <div class="profile-field-label">부서</div>
+              <div class="profile-field-value" id="profile-department">-</div>
+            </div>
+            <div class="profile-field">
+              <div class="profile-field-label">직책</div>
+              <div class="profile-field-value" id="profile-job-title">-</div>
+            </div>
+            <div class="profile-field">
+              <div class="profile-field-label">내선번호</div>
+              <div class="profile-field-value" id="profile-extension">-</div>
+            </div>
+            <div class="profile-field">
+              <div class="profile-field-label">회사 번호</div>
+              <div class="profile-field-value" id="profile-phone">-</div>
+            </div>
+            <div class="profile-field">
+              <div class="profile-field-label">근무지</div>
+              <div class="profile-field-value" id="profile-location">-</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <div id="profile-role-actions" style="display: none; gap: 8px; margin-right: auto;">
+          <select id="profile-role-select" class="role-select">
+            <option value="owner">소유자</option>
+            <option value="admin">관리자</option>
+            <option value="moderator">모더레이터</option>
+            <option value="member">멤버</option>
+          </select>
+          <button class="btn btn-primary" onclick="window.app.updateMemberRole()">역할 변경</button>
+        </div>
+        <button class="btn btn-primary" id="btn-edit-profile" onclick="window.app.showEditProfileModal()"
+          style="display: none; margin-right: auto;">
+          프로필 편집
+        </button>
+        <button class="btn btn-secondary"
+          onclick="document.getElementById('member-profile-modal').style.display='none'">
+          닫기
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 프로필 편집 모달 -->
+  <div class="modal-overlay" id="edit-profile-modal" style="display: none;">
+    <div class="modal edit-profile-modal">
+      <div class="modal-header">
+        <h2>프로필 편집</h2>
+        <button class="icon-btn modal-close"
+          onclick="document.getElementById('edit-profile-modal').style.display='none'">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+            <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <form id="edit-profile-form">
+          <div class="form-group">
+            <label for="edit-profile-name">이름</label>
+            <input type="text" id="edit-profile-name" placeholder="이름을 입력하세요">
           </div>
 
           <div class="form-group">
-            <label for="channel-perm-post">메시지 전송 권한</label>
-            <select id="channel-perm-post">
-              <option value="everyone">모든 멤버</option>
-              <option value="admin_only">관리자만</option>
-              <option value="owner_only">소유자만</option>
-            </select>
-            <small class="form-hint">누가 이 채널에 메시지를 보낼 수 있는지 설정합니다</small>
+            <label for="edit-profile-email">이메일</label>
+            <input type="email" id="edit-profile-email" placeholder="이메일을 입력하세요">
           </div>
-        </div>
-        <div class="modal-actions">
-          <button class="btn-cancel" id="channel-permission-cancel">취소</button>
-          <button class="btn-primary" id="channel-permission-ok">확인</button>
-        </div>
+
+          <div class="profile-section-title" style="margin-top: 16px;">조직 정보</div>
+
+          <div class="form-group">
+            <label for="edit-profile-department">부서</label>
+            <input type="text" id="edit-profile-department" placeholder="예: 개발팀, 기획팀, 영업팀">
+          </div>
+
+          <div class="form-group">
+            <label for="edit-profile-job-title">직책</label>
+            <input type="text" id="edit-profile-job-title" placeholder="예: 주임, 대리, 과장, 차장, 부장">
+          </div>
+
+          <div class="form-group">
+            <label for="edit-profile-extension">내선번호</label>
+            <input type="text" id="edit-profile-extension" placeholder="예: 1234">
+          </div>
+
+          <div class="form-group">
+            <label for="edit-profile-phone">회사 번호</label>
+            <input type="text" id="edit-profile-phone" placeholder="예: 02-1234-5678">
+          </div>
+
+          <div class="form-group">
+            <label for="edit-profile-location">근무지</label>
+            <input type="text" id="edit-profile-location" placeholder="예: 본사, 강남지점, 재택">
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="document.getElementById('edit-profile-modal').style.display='none'">
+          취소
+        </button>
+        <button class="btn btn-primary" onclick="window.app.saveProfileEdits()">
+          저장
+        </button>
       </div>
     </div>
+  </div>
 
-    <!-- 음성채팅 모달 -->
-    <div class="modal-overlay" id="voice-chat-modal" style="display: none;">
-      <div class="modal voice-chat-modal">
-        <div class="modal-header">
-          <h3>음성채팅</h3>
-          <div class="modal-header-actions">
-            <button class="icon-btn" id="minimize-voice-chat" title="축소">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <path d="M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-              </svg>
-            </button>
-            <button class="icon-btn modal-close" id="close-voice-chat">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-              </svg>
-            </button>
-          </div>
-        </div>
-        <div class="modal-body">
-          <div class="voice-chat-status">
-            <div class="voice-chat-timer" id="voice-timer">00:00</div>
-            <p id="voice-status-text">음성채팅에 연결 중...</p>
-          </div>
-          <div class="voice-participants" id="voice-participants">
-            <!-- 참여자 목록이 동적으로 추가됨 -->
-          </div>
-          <div class="voice-controls">
-            <button class="voice-btn" id="btn-toggle-mic" title="마이크 토글">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" stroke="currentColor" stroke-width="2" />
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" stroke="currentColor" stroke-width="2"
-                  stroke-linecap="round" />
-              </svg>
-              <span>음소거</span>
-            </button>
-            <button class="voice-btn" id="btn-toggle-speaker" title="스피커 토글">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                <path d="M11 5L6 9H2v6h4l5 4V5zM19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"
-                  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-              </svg>
-              <span>스피커</span>
-            </button>
-            <button class="voice-btn danger" id="btn-leave-voice" title="음성채팅 나가기">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                <path d="M23 3l-7 18-4-9-9-4 20-5z" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                  stroke-linejoin="round" />
-                <path d="M12 12L3 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-              </svg>
-              <span>나가기</span>
-            </button>
-          </div>
-        </div>
+  <!-- 입력 다이얼로그 모달 -->
+  <div class="modal-overlay" id="input-dialog-overlay" style="display: none;">
+    <div class="modal input-dialog">
+      <div class="modal-header">
+        <h3 id="input-dialog-title">입력</h3>
+        <button class="icon-btn modal-close" id="input-dialog-close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+            <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <input type="text" id="input-dialog-input" placeholder="입력하세요">
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" id="input-dialog-cancel">취소</button>
+        <button class="btn-primary" id="input-dialog-ok">확인</button>
       </div>
     </div>
+  </div>
 
-    <!-- 화면 공유 모달 -->
-    <div class="modal-overlay" id="screen-share-modal" style="display: none;">
-      <div class="modal screen-share-modal">
-        <div class="modal-header">
-          <h3>화면 공유</h3>
-          <div class="modal-header-actions">
-            <button class="icon-btn" id="minimize-screen-share" title="축소">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <path d="M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-              </svg>
-            </button>
-            <button class="icon-btn modal-close" id="close-screen-share">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-              </svg>
-            </button>
-          </div>
+  <!-- 채널 권한 설정 모달 -->
+  <div class="modal-overlay" id="channel-permission-dialog" style="display: none;">
+    <div class="modal channel-permission-modal">
+      <div class="modal-header">
+        <h3 id="channel-permission-title">채널 설정</h3>
+        <button class="icon-btn modal-close" id="channel-permission-close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+            <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="channel-perm-name">채널 이름</label>
+          <input type="text" id="channel-perm-name" placeholder="채널 이름을 입력하세요">
         </div>
-        <div class="modal-body">
-          <div class="screen-share-options">
-            <div class="share-option" id="share-entire-screen">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
-                <rect x="2" y="3" width="20" height="14" rx="2" stroke="currentColor" stroke-width="1.5" />
-                <path d="M8 21h8M12 17v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-              </svg>
-              <h4>전체 화면</h4>
-              <p>전체 화면을 공유합니다</p>
-            </div>
-            <div class="share-option" id="share-window">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
-                <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" stroke-width="1.5" />
-                <path d="M9 3v18" stroke="currentColor" stroke-width="1.5" />
-              </svg>
-              <h4>특정 창</h4>
-              <p>선택한 창을 공유합니다</p>
-            </div>
-            <div class="share-option" id="share-tab">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
-                <rect x="3" y="6" width="18" height="14" rx="2" stroke="currentColor" stroke-width="1.5" />
-                <path d="M3 10h18" stroke="currentColor" stroke-width="1.5" />
-              </svg>
-              <h4>브라우저 탭</h4>
-              <p>브라우저 탭을 공유합니다</p>
-            </div>
-          </div>
-          <div class="screen-share-preview" id="screen-preview" style="display: none;">
-            <video id="screen-video" autoplay></video>
-            <div class="share-controls">
-              <button class="btn-cancel" id="btn-stop-share">공유 중지</button>
-            </div>
-          </div>
+
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="channel-perm-private">
+            <span>비공개 채널</span>
+          </label>
+          <small class="form-hint">비공개 채널은 허용된 역할/멤버만 접근할 수 있습니다</small>
+        </div>
+
+        <div class="form-group" id="channel-perm-access-group" style="display: none;">
+          <label for="channel-perm-roles">접근 허용 역할 (쉼표로 구분)</label>
+          <input type="text" id="channel-perm-roles" placeholder="예: admin, moderator">
+          <small class="form-hint">비어있으면 역할 제한 없음</small>
+        </div>
+
+        <div class="form-group" id="channel-perm-members-group" style="display: none;">
+          <label for="channel-perm-members">접근 허용 멤버 ID (쉼표로 구분)</label>
+          <input type="text" id="channel-perm-members" placeholder="예: user1, user2">
+          <small class="form-hint">비어있으면 멤버 제한 없음</small>
+        </div>
+
+        <div class="form-group">
+          <label for="channel-perm-post">메시지 전송 권한</label>
+          <select id="channel-perm-post">
+            <option value="everyone">모든 멤버</option>
+            <option value="admin_only">관리자만</option>
+            <option value="owner_only">소유자만</option>
+          </select>
+          <small class="form-hint">누가 이 채널에 메시지를 보낼 수 있는지 설정합니다</small>
         </div>
       </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" id="channel-permission-cancel">취소</button>
+        <button class="btn-primary" id="channel-permission-ok">확인</button>
+      </div>
     </div>
+  </div>
 
-    <!-- 일정관리 달력 모달 -->
-    <div class="modal-overlay" id="calendar-modal" style="display: none;">
-      <div class="modal calendar-modal">
-        <div class="modal-header">
-          <h3>일정관리</h3>
-          <button class="icon-btn modal-close" id="close-calendar">
+  <!-- 음성채팅 모달 -->
+  <div class="modal-overlay" id="voice-chat-modal" style="display: none;">
+    <div class="modal voice-chat-modal">
+      <div class="modal-header">
+        <h3>음성채팅</h3>
+        <div class="modal-header-actions">
+          <button class="icon-btn" id="minimize-voice-chat" title="축소">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <path d="M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            </svg>
+          </button>
+          <button class="icon-btn modal-close" id="close-voice-chat">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
               <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
             </svg>
           </button>
         </div>
-        <div class="modal-body">
-          <div class="calendar-header">
-            <button class="icon-btn" id="prev-month">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-              </svg>
-            </button>
-            <h4 id="current-month">2025년 12월</h4>
-            <button class="icon-btn" id="next-month">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <path d="M9 18l6-6-6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-              </svg>
-            </button>
-          </div>
-          <div class="calendar-grid">
-            <div class="calendar-weekdays">
-              <div>일</div>
-              <div>월</div>
-              <div>화</div>
-              <div>수</div>
-              <div>목</div>
-              <div>금</div>
-              <div>토</div>
-            </div>
-            <div class="calendar-days" id="calendar-days">
-              <!-- 날짜가 동적으로 추가됨 -->
-            </div>
-          </div>
-          <div class="calendar-events">
-            <div class="events-header">
-              <h4>일정</h4>
-              <button class="btn-primary small" id="btn-add-event">일정 추가</button>
-            </div>
-            <div class="events-list" id="events-list">
-              <!-- 일정 목록이 동적으로 추가됨 -->
-            </div>
-          </div>
-        </div>
       </div>
-    </div>
-
-    <!-- 마이페이지 모달 -->
-    <div class="modal-overlay" id="mypage-modal" style="display: none;">
-      <div class="modal mypage-modal">
-        <div class="modal-header">
-          <h3>마이페이지</h3>
-          <button class="icon-btn modal-close" id="close-mypage">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-              <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-            </svg>
-          </button>
+      <div class="modal-body">
+        <div class="voice-chat-status">
+          <div class="voice-chat-timer" id="voice-timer">00:00</div>
+          <p id="voice-status-text">음성채팅에 연결 중...</p>
         </div>
-        <div class="modal-body">
-          <div class="profile-section">
-            <div class="profile-avatar-large" id="profile-avatar-large">
-              <span id="profile-avatar-text">U</span>
-            </div>
-            <div class="profile-info">
-              <h4 id="profile-name">사용자</h4>
-              <div class="status-selector">
-                <button class="status-btn" data-status="online">
-                  <span class="status-dot online"></span>
-                  온라인
-                </button>
-                <button class="status-btn" data-status="away">
-                  <span class="status-dot away"></span>
-                  자리비움
-                </button>
-                <button class="status-btn" data-status="busy">
-                  <span class="status-dot busy"></span>
-                  방해금지
-                </button>
-                <button class="status-btn" data-status="offline">
-                  <span class="status-dot offline"></span>
-                  오프라인
-                </button>
-              </div>
-            </div>
-          </div>
-          <div class="profile-details">
-            <div class="detail-item">
-              <label>이름</label>
-              <input type="text" id="profile-name-input" placeholder="이름 입력">
-            </div>
-            <div class="detail-item">
-              <label>상태 메시지</label>
-              <input type="text" id="profile-status-msg" placeholder="상태 메시지">
-            </div>
-            <div class="detail-item">
-              <label>이메일</label>
-              <input type="email" id="profile-email" placeholder="이메일 주소">
-            </div>
-            <div class="detail-item">
-              <label>전화번호</label>
-              <input type="tel" id="profile-phone" placeholder="전화번호">
-            </div>
-          </div>
-          <div class="modal-actions">
-            <button class="btn-cancel" id="cancel-profile">취소</button>
-            <button class="btn-primary" id="save-profile">저장</button>
-          </div>
+        <div class="voice-participants" id="voice-participants">
+          <!-- 참여자 목록이 동적으로 추가됨 -->
         </div>
-      </div>
-    </div>
-
-    <!-- 일정 추가 모달 -->
-    <div class="modal-overlay" id="add-event-modal" style="display: none;">
-      <div class="modal event-modal">
-        <div class="modal-header">
-          <h3>일정 추가</h3>
-          <button class="icon-btn modal-close" id="close-add-event">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-              <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-            </svg>
-          </button>
-        </div>
-        <div class="modal-body">
-          <div class="detail-item">
-            <label>제목</label>
-            <input type="text" id="event-title" placeholder="일정 제목">
-          </div>
-          <div class="detail-item">
-            <label>날짜</label>
-            <input type="date" id="event-date">
-          </div>
-          <div class="detail-item">
-            <label>시간</label>
-            <input type="time" id="event-time">
-          </div>
-          <div class="detail-item">
-            <label>설명</label>
-            <textarea id="event-description" placeholder="일정 설명" rows="3"></textarea>
-          </div>
-        </div>
-        <div class="modal-actions">
-          <button class="btn-cancel" id="cancel-event">취소</button>
-          <button class="btn-primary" id="save-event">저장</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 화이트보드 모달 -->
-    <div class="modal-overlay" id="whiteboard-modal" style="display: none;">
-      <div class="modal whiteboard-modal">
-        <div class="modal-header">
-          <h3>화이트보드</h3>
-          <button class="icon-btn modal-close" id="close-whiteboard">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-              <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-            </svg>
-          </button>
-        </div>
-        <div class="modal-body whiteboard-body">
-          <div class="whiteboard-toolbar">
-            <div class="toolbar-group">
-              <button class="tool-btn active" data-tool="pen" title="펜">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <path d="M12 19l7-7 3 3-7 7-3-3z" stroke="currentColor" stroke-width="2" />
-                  <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z" stroke="currentColor" stroke-width="2" />
-                  <path d="M2 2l7.586 7.586" stroke="currentColor" stroke-width="2" />
-                  <circle cx="11" cy="11" r="2" stroke="currentColor" stroke-width="2" />
-                </svg>
-              </button>
-              <button class="tool-btn" data-tool="eraser" title="지우개">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <path d="M20 20H7L2 15l9.5-9.5a1 1 0 0 1 1.42 0l9.08 9.08a1 1 0 0 1 0 1.42L17 20z"
-                    stroke="currentColor" stroke-width="2" />
-                  <path d="M8.5 13L13 17.5" stroke="currentColor" stroke-width="2" />
-                </svg>
-              </button>
-              <button class="tool-btn" data-tool="line" title="직선">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <path d="M5 19l14-14" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-                </svg>
-              </button>
-              <button class="tool-btn" data-tool="rectangle" title="사각형">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2" />
-                </svg>
-              </button>
-              <button class="tool-btn" data-tool="circle" title="원">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" />
-                </svg>
-              </button>
-              <button class="tool-btn" data-tool="text" title="텍스트">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <path d="M4 7V4h16v3M9 20h6M12 4v16" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-                </svg>
-              </button>
-            </div>
-            <div class="toolbar-divider"></div>
-            <div class="toolbar-group">
-              <div class="color-picker-wrapper">
-                <label>색상</label>
-                <input type="color" id="wb-color" value="#6366f1">
-              </div>
-              <div class="slider-wrapper">
-                <label>굵기</label>
-                <input type="range" id="wb-width" min="1" max="20" value="3">
-                <span id="wb-width-value">3</span>
-              </div>
-              <div class="checkbox-wrapper">
-                <label>
-                  <input type="checkbox" id="wb-fill">
-                  채우기
-                </label>
-              </div>
-            </div>
-            <div class="toolbar-divider"></div>
-            <div class="toolbar-group">
-              <div class="color-picker-wrapper">
-                <label>배경</label>
-                <input type="color" id="wb-bg-color" value="#ffffff">
-              </div>
-              <div class="checkbox-wrapper">
-                <label>
-                  <input type="checkbox" id="wb-grid">
-                  그리드
-                </label>
-              </div>
-              <button class="tool-btn" id="wb-upload-image" title="이미지 업로드">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2" />
-                  <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor" />
-                  <path d="M21 15l-5-5L5 21" stroke="currentColor" stroke-width="2" />
-                </svg>
-              </button>
-              <input type="file" id="wb-image-input" accept="image/*" style="display: none;">
-            </div>
-            <div class="toolbar-divider"></div>
-            <div class="toolbar-group">
-              <button class="tool-btn" id="wb-clear" title="전체 지우기">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
-                    stroke="currentColor" stroke-width="2" />
-                </svg>
-              </button>
-              <button class="tool-btn" id="wb-undo" title="실행 취소">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <path d="M3 7v6h6M3 13a9 9 0 1 0 9-9" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-                </svg>
-              </button>
-              <button class="tool-btn" id="wb-redo" title="다시 실행">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <path d="M21 7v6h-6M21 13a9 9 0 1 1-9-9" stroke="currentColor" stroke-width="2"
-                    stroke-linecap="round" />
-                </svg>
-              </button>
-              <button class="tool-btn" id="wb-download" title="다운로드">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor"
-                    stroke-width="2" stroke-linecap="round" />
-                </svg>
-              </button>
-            </div>
-          </div>
-          <div class="whiteboard-canvas-container">
-            <canvas id="whiteboard-canvas"></canvas>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 축소된 창 표시 영역 -->
-    <div class="minimized-windows" id="minimized-windows">
-      <!-- 음성채팅 축소 창 -->
-      <div class="minimized-window" id="minimized-voice-chat" style="display: none;">
-        <div class="minimized-window-content">
-          <div class="minimized-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+        <div class="voice-controls">
+          <button class="voice-btn" id="btn-toggle-mic" title="마이크 토글">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
               <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" stroke="currentColor" stroke-width="2" />
               <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" stroke="currentColor" stroke-width="2"
                 stroke-linecap="round" />
             </svg>
-          </div>
-          <div class="minimized-info">
-            <div class="minimized-title">음성채팅</div>
-            <div class="minimized-status" id="minimized-voice-timer">00:00</div>
-          </div>
-          <button class="minimized-restore" data-restore="voice-chat" title="복원">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-              <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"
-                stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-            </svg>
+            <span>음소거</span>
           </button>
-        </div>
-      </div>
-
-      <!-- 화면 공유 축소 창 -->
-      <div class="minimized-window" id="minimized-screen-share" style="display: none;">
-        <div class="minimized-window-content">
-          <div class="minimized-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-              <rect x="2" y="3" width="20" height="14" rx="2" stroke="currentColor" stroke-width="2" />
-              <path d="M8 21h8M12 17v4" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          <button class="voice-btn" id="btn-toggle-speaker" title="스피커 토글">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+              <path d="M11 5L6 9H2v6h4l5 4V5zM19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
-          </div>
-          <div class="minimized-info">
-            <div class="minimized-title">화면 공유</div>
-            <div class="minimized-status">공유 중</div>
-          </div>
-          <button class="minimized-restore" data-restore="screen-share" title="복원">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-              <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"
-                stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            <span>스피커</span>
+          </button>
+          <button class="voice-btn danger" id="btn-leave-voice" title="음성채팅 나가기">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+              <path d="M23 3l-7 18-4-9-9-4 20-5z" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                stroke-linejoin="round" />
+              <path d="M12 12L3 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
             </svg>
+            <span>나가기</span>
           </button>
         </div>
       </div>
     </div>
+  </div>
+
+  <!-- 화면 공유 모달 -->
+  <div class="modal-overlay" id="screen-share-modal" style="display: none;">
+    <div class="modal screen-share-modal">
+      <div class="modal-header">
+        <h3>화면 공유</h3>
+        <div class="modal-header-actions">
+          <button class="icon-btn" id="minimize-screen-share" title="축소">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <path d="M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            </svg>
+          </button>
+          <button class="icon-btn modal-close" id="close-screen-share">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div class="screen-share-options">
+          <div class="share-option" id="share-entire-screen">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
+              <rect x="2" y="3" width="20" height="14" rx="2" stroke="currentColor" stroke-width="1.5" />
+              <path d="M8 21h8M12 17v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+            </svg>
+            <h4>전체 화면</h4>
+            <p>전체 화면을 공유합니다</p>
+          </div>
+          <div class="share-option" id="share-window">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
+              <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" stroke-width="1.5" />
+              <path d="M9 3v18" stroke="currentColor" stroke-width="1.5" />
+            </svg>
+            <h4>특정 창</h4>
+            <p>선택한 창을 공유합니다</p>
+          </div>
+          <div class="share-option" id="share-tab">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
+              <rect x="3" y="6" width="18" height="14" rx="2" stroke="currentColor" stroke-width="1.5" />
+              <path d="M3 10h18" stroke="currentColor" stroke-width="1.5" />
+            </svg>
+            <h4>브라우저 탭</h4>
+            <p>브라우저 탭을 공유합니다</p>
+          </div>
+        </div>
+        <div class="screen-share-preview" id="screen-preview" style="display: none;">
+          <video id="screen-video" autoplay></video>
+          <div class="share-controls">
+            <button class="btn-cancel" id="btn-stop-share">공유 중지</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 일정관리 달력 모달 -->
+  <div class="modal-overlay" id="calendar-modal" style="display: none;">
+    <div class="modal calendar-modal">
+      <div class="modal-header">
+        <h3>일정관리</h3>
+        <button class="icon-btn modal-close" id="close-calendar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+            <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="calendar-header">
+          <button class="icon-btn" id="prev-month">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            </svg>
+          </button>
+          <h4 id="current-month">2025년 12월</h4>
+          <button class="icon-btn" id="next-month">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <path d="M9 18l6-6-6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            </svg>
+          </button>
+        </div>
+        <div class="calendar-grid">
+          <div class="calendar-weekdays">
+            <div>일</div>
+            <div>월</div>
+            <div>화</div>
+            <div>수</div>
+            <div>목</div>
+            <div>금</div>
+            <div>토</div>
+          </div>
+          <div class="calendar-days" id="calendar-days">
+            <!-- 날짜가 동적으로 추가됨 -->
+          </div>
+        </div>
+        <div class="calendar-events">
+          <div class="events-header">
+            <h4>일정</h4>
+            <button class="btn-primary small" id="btn-add-event">일정 추가</button>
+          </div>
+          <div class="events-list" id="events-list">
+            <!-- 일정 목록이 동적으로 추가됨 -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 마이페이지 모달 -->
+  <div class="modal-overlay" id="mypage-modal" style="display: none;">
+    <div class="modal mypage-modal">
+      <div class="modal-header">
+        <h3>마이페이지</h3>
+        <button class="icon-btn modal-close" id="close-mypage">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+            <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="profile-section">
+          <div class="profile-avatar-large" id="profile-avatar-large">
+            <span id="profile-avatar-text">U</span>
+          </div>
+          <div class="profile-info">
+            <h4 id="profile-name">사용자</h4>
+            <div class="status-selector">
+              <button class="status-btn" data-status="online">
+                <span class="status-dot online"></span>
+                온라인
+              </button>
+              <button class="status-btn" data-status="away">
+                <span class="status-dot away"></span>
+                자리비움
+              </button>
+              <button class="status-btn" data-status="busy">
+                <span class="status-dot busy"></span>
+                방해금지
+              </button>
+              <button class="status-btn" data-status="offline">
+                <span class="status-dot offline"></span>
+                오프라인
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="profile-details">
+          <div class="detail-item">
+            <label>이름</label>
+            <input type="text" id="profile-name-input" placeholder="이름 입력">
+          </div>
+          <div class="detail-item">
+            <label>상태 메시지</label>
+            <input type="text" id="profile-status-msg" placeholder="상태 메시지">
+          </div>
+          <div class="detail-item">
+            <label>이메일</label>
+            <input type="email" id="profile-email" placeholder="이메일 주소">
+          </div>
+          <div class="detail-item">
+            <label>전화번호</label>
+            <input type="tel" id="profile-phone" placeholder="전화번호">
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-cancel" id="cancel-profile">취소</button>
+          <button class="btn-primary" id="save-profile">저장</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 일정 추가 모달 -->
+  <div class="modal-overlay" id="add-event-modal" style="display: none;">
+    <div class="modal event-modal">
+      <div class="modal-header">
+        <h3>일정 추가</h3>
+        <button class="icon-btn modal-close" id="close-add-event">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+            <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="detail-item">
+          <label>제목</label>
+          <input type="text" id="event-title" placeholder="일정 제목">
+        </div>
+        <div class="detail-item">
+          <label>날짜</label>
+          <input type="date" id="event-date">
+        </div>
+        <div class="detail-item">
+          <label>시간</label>
+          <input type="time" id="event-time">
+        </div>
+        <div class="detail-item">
+          <label>설명</label>
+          <textarea id="event-description" placeholder="일정 설명" rows="3"></textarea>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" id="cancel-event">취소</button>
+        <button class="btn-primary" id="save-event">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 화이트보드 모달 -->
+  <div class="modal-overlay" id="whiteboard-modal" style="display: none;">
+    <div class="modal whiteboard-modal">
+      <div class="modal-header">
+        <h3>화이트보드</h3>
+        <button class="icon-btn modal-close" id="close-whiteboard">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+            <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body whiteboard-body">
+        <div class="whiteboard-toolbar">
+          <div class="toolbar-group">
+            <button class="tool-btn active" data-tool="pen" title="펜">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <path d="M12 19l7-7 3 3-7 7-3-3z" stroke="currentColor" stroke-width="2" />
+                <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z" stroke="currentColor" stroke-width="2" />
+                <path d="M2 2l7.586 7.586" stroke="currentColor" stroke-width="2" />
+                <circle cx="11" cy="11" r="2" stroke="currentColor" stroke-width="2" />
+              </svg>
+            </button>
+            <button class="tool-btn" data-tool="eraser" title="지우개">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <path d="M20 20H7L2 15l9.5-9.5a1 1 0 0 1 1.42 0l9.08 9.08a1 1 0 0 1 0 1.42L17 20z" stroke="currentColor"
+                  stroke-width="2" />
+                <path d="M8.5 13L13 17.5" stroke="currentColor" stroke-width="2" />
+              </svg>
+            </button>
+            <button class="tool-btn" data-tool="line" title="직선">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <path d="M5 19l14-14" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+              </svg>
+            </button>
+            <button class="tool-btn" data-tool="rectangle" title="사각형">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2" />
+              </svg>
+            </button>
+            <button class="tool-btn" data-tool="circle" title="원">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" />
+              </svg>
+            </button>
+            <button class="tool-btn" data-tool="text" title="텍스트">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <path d="M4 7V4h16v3M9 20h6M12 4v16" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+              </svg>
+            </button>
+          </div>
+          <div class="toolbar-divider"></div>
+          <div class="toolbar-group">
+            <div class="color-picker-wrapper">
+              <label>색상</label>
+              <input type="color" id="wb-color" value="#6366f1">
+            </div>
+            <div class="slider-wrapper">
+              <label>굵기</label>
+              <input type="range" id="wb-width" min="1" max="20" value="3">
+              <span id="wb-width-value">3</span>
+            </div>
+            <div class="checkbox-wrapper">
+              <label>
+                <input type="checkbox" id="wb-fill">
+                채우기
+              </label>
+            </div>
+          </div>
+          <div class="toolbar-divider"></div>
+          <div class="toolbar-group">
+            <div class="color-picker-wrapper">
+              <label>배경</label>
+              <input type="color" id="wb-bg-color" value="#ffffff">
+            </div>
+            <div class="checkbox-wrapper">
+              <label>
+                <input type="checkbox" id="wb-grid">
+                그리드
+              </label>
+            </div>
+            <button class="tool-btn" id="wb-upload-image" title="이미지 업로드">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2" />
+                <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor" />
+                <path d="M21 15l-5-5L5 21" stroke="currentColor" stroke-width="2" />
+              </svg>
+            </button>
+            <input type="file" id="wb-image-input" accept="image/*" style="display: none;">
+          </div>
+          <div class="toolbar-divider"></div>
+          <div class="toolbar-group">
+            <button class="tool-btn" id="wb-clear" title="전체 지우기">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+                  stroke="currentColor" stroke-width="2" />
+              </svg>
+            </button>
+            <button class="tool-btn" id="wb-undo" title="실행 취소">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <path d="M3 7v6h6M3 13a9 9 0 1 0 9-9" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+              </svg>
+            </button>
+            <button class="tool-btn" id="wb-redo" title="다시 실행">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <path d="M21 7v6h-6M21 13a9 9 0 1 1-9-9" stroke="currentColor" stroke-width="2"
+                  stroke-linecap="round" />
+              </svg>
+            </button>
+            <button class="tool-btn" id="wb-download" title="다운로드">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor"
+                  stroke-width="2" stroke-linecap="round" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="whiteboard-canvas-container">
+          <canvas id="whiteboard-canvas"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 축소된 창 표시 영역 -->
+  <div class="minimized-windows" id="minimized-windows">
+    <!-- 음성채팅 축소 창 -->
+    <div class="minimized-window" id="minimized-voice-chat" style="display: none;">
+      <div class="minimized-window-content">
+        <div class="minimized-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" stroke="currentColor" stroke-width="2" />
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" />
+          </svg>
+        </div>
+        <div class="minimized-info">
+          <div class="minimized-title">음성채팅</div>
+          <div class="minimized-status" id="minimized-voice-timer">00:00</div>
+        </div>
+        <button class="minimized-restore" data-restore="voice-chat" title="복원">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- 화면 공유 축소 창 -->
+    <div class="minimized-window" id="minimized-screen-share" style="display: none;">
+      <div class="minimized-window-content">
+        <div class="minimized-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+            <rect x="2" y="3" width="20" height="14" rx="2" stroke="currentColor" stroke-width="2" />
+            <path d="M8 21h8M12 17v4" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+        </div>
+        <div class="minimized-info">
+          <div class="minimized-title">화면 공유</div>
+          <div class="minimized-status">공유 중</div>
+        </div>
+        <button class="minimized-restore" data-restore="screen-share" title="복원">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
   </div>
 
   <!-- 검색 모달 (Ctrl+K) -->
@@ -1724,6 +1752,7 @@
     <div class="context-menu-item danger" id="ctx-channel-delete">채널 삭제</div>
   </div>
 
+  <script src="../../node_modules/dompurify/dist/purify.min.js"></script>
   <script type="module" src="app.js"></script>
 </body>
 

@@ -3,6 +3,7 @@ import { SocketManager } from './modules/SocketManager.js';
 import { UIManager } from './modules/UIManager.js';
 import { ChatManager } from './modules/ChatManager.js';
 import { ServerManager } from './modules/ServerManager.js';
+import { WebRTCManager } from './modules/WebRTCManager.js';
 
 class WorkMessenger {
   constructor() {
@@ -14,6 +15,7 @@ class WorkMessenger {
     this.uiManager = new UIManager(this);
     this.chatManager = new ChatManager(this);
     this.serverManager = new ServerManager(this);
+    this.webRTCManager = new WebRTCManager(this);
 
     this.init();
   }
