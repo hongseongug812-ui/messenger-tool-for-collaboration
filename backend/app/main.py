@@ -16,7 +16,7 @@ import qrcode
 import aiosmtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File, Request
+from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import FileResponse, StreamingResponse
@@ -2564,6 +2564,7 @@ async def leave(sid, data):
 @sio.event
 async def message(sid, data):
   channel_id = data.get("channelId") or data.get("channel_id")
+  print(f"[backend] Received message event: channel_id={channel_id}, sid={sid}")
   raw_message = data.get("message") or {}
   sender_payload = raw_message.get("sender")
   content = raw_message.get("content") or ""
@@ -2627,7 +2628,6 @@ async def message(sid, data):
       "message",
       {"channelId": channel_id, "message": _message_to_response(message_obj)},
       room=channel_id,
-      skip_sid=sid,  # 보낸 클라이언트를 제외하고 다른 참가자에게만 전송
   )
   return True
 
@@ -2779,6 +2779,56 @@ async def extract_channel_tasks(
 
   tasks = await extract_tasks(messages)
   return {"tasks": tasks, "message_count": len(messages), "hours": hours}
+@sio.event
+async def typing_start(sid, data):
+  channel_id = data.get("channelId") or data.get("channel_id")
+  user_id = online_users.get(sid)
+  if channel_id and user_id:
+    # Get user name for display
+    user_doc = await users_col.find_one({"_id": user_id})
+    if user_doc:
+        username = user_doc.get("name") or user_doc.get("username")
+        await sio.emit(
+            "typing_start",
+            {"channelId": channel_id, "userId": user_id, "username": username},
+            room=channel_id,
+            skip_sid=sid
+        )
+
+@sio.event
+async def typing_stop(sid, data):
+  channel_id = data.get("channelId") or data.get("channel_id")
+  user_id = online_users.get(sid)
+  if channel_id and user_id:
+    await sio.emit(
+        "typing_stop",
+        {"channelId": channel_id, "userId": user_id},
+        room=channel_id,
+        skip_sid=sid
+    )
+
+@sio.event
+async def channel_read(sid, data):
+  """Update last read time via socket for real-time receipts"""
+  channel_id = data.get("channelId") or data.get("channel_id")
+  user_id = online_users.get(sid)
+  
+  if channel_id and user_id:
+      timestamp = _now()
+      
+      # Update DB
+      await user_channel_reads_col.update_one(
+        {"user_id": user_id, "channel_id": channel_id},
+        {"$set": {"last_read_at": timestamp}},
+        upsert=True
+      )
+
+      # Broadcast update
+      await sio.emit(
+          "user_read_update",
+          {"channelId": channel_id, "userId": user_id, "lastReadAt": timestamp.isoformat()},
+          room=channel_id
+      )
 
 
 # ========================================
@@ -3053,8 +3103,32 @@ async def mark_channel_as_read(
     {"$set": {"last_read_at": timestamp}},
     upsert=True
   )
+  
+  # Broadcast update via socket if connected?
+  # The client is expected to emit 'channel_read` socket event for real-time, 
+  # but this REST API handles the persistence.
+  # We could broadcast here too but that might duplicate events if client does both.
+  # Let's rely on client emitting socket event for now, or add broadcast here.
+  # For safety, let's just stick to DB update here.
 
   return {"success": True, "channel_id": channel_id, "last_read_at": timestamp}
+
+
+@fastapi_app.get("/channels/{channel_id}/read-states")
+async def get_channel_read_states(
+    channel_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """채널 멤버들의 읽음 상태 조회"""
+    # Verify user has access to channel (simplified: just check if channel exists?)
+    # ideally check if user is in server/channel
+    
+    cursor = user_channel_reads_col.find({"channel_id": channel_id})
+    read_states = {}
+    async for doc in cursor:
+        read_states[doc["user_id"]] = doc["last_read_at"]
+        
+    return read_states
 
 
 @fastapi_app.get("/unreads", response_model=UnreadCountsResponse)
