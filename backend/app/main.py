@@ -28,6 +28,12 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from openai import OpenAI
+import google.generativeai as genai
+from dotenv import load_dotenv
+
+# Load .env from project root
+env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+load_dotenv(dotenv_path=env_path)
 
 
 def _get_list_env(key: str, default: List[str]) -> List[str]:
@@ -61,6 +67,25 @@ def decrypt_text(encrypted_text: str) -> str:
   except Exception as e:
     print(f"[decrypt_text] 복호화 실패: {e}")
     return encrypted_text  # 복호화 실패 시 원본 반환
+
+
+# Gemini API 설정
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+if GOOGLE_API_KEY:
+    genai.configure(api_key=GOOGLE_API_KEY)
+
+async def get_ai_response(prompt: str) -> str:
+    """Gemini API를 사용하여 AI 응답 생성"""
+    if not GOOGLE_API_KEY:
+        return "AI 기능을 사용하려면 API 키 설정이 필요합니다."
+    
+    try:
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        response = await model.generate_content_async(prompt)
+        return response.text
+    except Exception as e:
+        print(f"Gemini API Error: {e}")
+        return "AI 응답을 생성하는 중 오류가 발생했습니다."
 
 
 def extract_mentions(content: str) -> List[str]:
@@ -2629,6 +2654,49 @@ async def message(sid, data):
       {"channelId": channel_id, "message": _message_to_response(message_obj)},
       room=channel_id,
   )
+
+  # AI 챗봇 명령 처리 (@chatbot)
+  mentions = extract_mentions(content)
+  if "chatbot" in mentions:
+      # @chatbot 제거하고 나머지 텍스트를 프롬프트로 사용
+      prompt = content.replace("@chatbot", "").strip()
+      if prompt:
+          # 비동기로 AI 응답 생성 및 전송
+          ai_response_text = await get_ai_response(prompt)
+          
+          ai_message_obj = Message(
+              id=f"msg_{uuid.uuid4().hex[:12]}",
+              channel_id=channel_id,
+              sender=Sender(
+                  id="ai_bot",
+                  name="AI Assistant",
+                  avatar="🤖"
+              ),
+              content=ai_response_text,
+              timestamp=_now(),
+              files=[],
+          )
+          
+          # AI 메시지 저장 (암호화)
+          encrypted_ai_content = encrypt_text(ai_message_obj.content)
+          await messages_col.insert_one(
+              {
+                  "_id": ai_message_obj.id,
+                  "channel_id": channel_id,
+                  "sender": ai_message_obj.sender.model_dump(),
+                  "content": encrypted_ai_content,
+                  "timestamp": ai_message_obj.timestamp,
+                  "files": [],
+                  "thread_id": None,
+              }
+          )
+          
+          await sio.emit(
+              "message",
+              {"channelId": channel_id, "message": _message_to_response(ai_message_obj)},
+              room=channel_id,
+          )
+
   return True
 
 

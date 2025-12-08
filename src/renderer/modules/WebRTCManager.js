@@ -5,27 +5,57 @@ export class WebRTCManager {
         this.peers = {}; // sid -> RTCPeerConnection
         this.isCallActive = false;
 
-        // ICE Server config (using public STUN for demo)
         this.iceServers = {
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' }
             ]
         };
+        this.bindEvents();
+    }
+
+    bindEvents() {
+        // Bind Start Call Button
+        const btnVoice = document.getElementById('btn-voice-chat');
+        if (btnVoice) {
+            btnVoice.addEventListener('click', () => this.startCall());
+        }
+
+        // Bind Screen Share Button
+        const btnScreen = document.getElementById('btn-screen-share');
+        if (btnScreen) {
+            btnScreen.addEventListener('click', () => this.startScreenShare());
+        }
     }
 
     async startCall() {
         if (this.isCallActive) return;
+        await this.initiateMedia(false);
+    }
 
+    async startScreenShare() {
+        if (this.isCallActive) return;
+        await this.initiateMedia(true);
+    }
+
+    async initiateMedia(isScreen) {
         const channelId = this.app.serverManager.currentChannel?.id;
         if (!channelId) return;
 
         try {
-            // Get user media
-            this.localStream = await navigator.mediaDevices.getUserMedia({
-                video: true,
-                audio: true
-            });
+            if (isScreen) {
+                // Screen Sharing
+                this.localStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: true,
+                    audio: true
+                });
+            } else {
+                // Webcam
+                this.localStream = await navigator.mediaDevices.getUserMedia({
+                    video: true,
+                    audio: true
+                });
+            }
 
             this.isCallActive = true;
             this.showCallOverlay();
@@ -34,9 +64,14 @@ export class WebRTCManager {
             // Join call room
             this.app.socketManager.emit('call_join', { currentChannelId: channelId });
 
+            // Handle stream stop (e.g. user clicks "Stop Sharing")
+            this.localStream.getVideoTracks()[0].onended = () => {
+                this.leaveCall();
+            };
+
         } catch (err) {
-            console.error('Error starting call:', err);
-            alert('Could not access camera/microphone');
+            console.error('Error accessing media:', err);
+            // alert('Media access failed or cancelled.');
         }
     }
 

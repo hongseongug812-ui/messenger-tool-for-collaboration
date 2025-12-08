@@ -50,6 +50,14 @@ export class ServerManager {
                 }
             }
         });
+
+        // Add Server Button
+        document.getElementById('btn-add-server')?.addEventListener('click', async () => {
+            const name = await this.app.uiManager.showInputDialog('새 서버 이름 입력:');
+            if (name) {
+                await this.createServer(name);
+            }
+        });
     }
 
     hideContextMenus() {
@@ -59,6 +67,31 @@ export class ServerManager {
         if (channelMenu) channelMenu.style.display = 'none';
         this.serverContextTarget = null;
         this.channelContextTarget = null;
+    }
+
+    async createServer(name) {
+        if (!name) return;
+        try {
+            const server = await this.app.apiRequest('/servers', {
+                method: 'POST',
+                body: JSON.stringify({ name, avatar: name[0] })
+            });
+            if (server) {
+                this.servers.push({
+                    ...server,
+                    categories: (server.categories || []).map(cat => ({
+                        ...cat,
+                        channels: (cat.channels || []).map(ch => ({ ...ch, unread: 0 }))
+                    }))
+                });
+                this.renderServerList();
+                this.selectServer(server);
+                return server;
+            }
+        } catch (error) {
+            console.error('서버 생성 실패:', error);
+            alert('서버 생성에 실패했습니다.');
+        }
     }
 
     async loadServerData() {

@@ -115,6 +115,11 @@ export class UIManager {
             btnMaximize?.addEventListener('click', () => window.electronAPI.maximizeWindow());
             btnClose?.addEventListener('click', () => window.electronAPI.closeWindow());
         }
+
+        const themeBtn = document.getElementById('theme-toggle-btn');
+        if (themeBtn) {
+            themeBtn.addEventListener('click', () => this.toggleTheme());
+        }
     }
 
     showModal(modalId) {
