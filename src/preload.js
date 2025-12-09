@@ -64,6 +64,33 @@ try {
   }
 }
 
+// Load marked for Markdown parsing
+let marked = null;
+try {
+  marked = require('marked');
+  console.log('[Preload] marked loaded successfully');
+} catch (error) {
+  console.error('[Preload] Failed to load marked:', error.message);
+
+  if (pathModule) {
+    const alternatePaths = [
+      pathModule.join(__dirname, '..', 'node_modules', 'marked'),
+      pathModule.join(process.cwd(), 'node_modules', 'marked')
+    ];
+
+    for (const altPath of alternatePaths) {
+      try {
+        console.log('[Preload] Trying alternate path for marked:', altPath);
+        marked = require(altPath);
+        console.log('[Preload] marked loaded from alternate path:', altPath);
+        break;
+      } catch (altError) {
+        console.warn('[Preload] Failed to load marked from:', altPath, altError.message);
+      }
+    }
+  }
+}
+
 let socket = null;
 
 // 안전한 API 노출
@@ -71,6 +98,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 설정 가져오기
   getConfig: () => ipcRenderer.invoke('get-config'),
   getApiCredentials: () => ipcRenderer.invoke('get-api-credentials'),
+
+  // Markdown 파싱
+  parseMarkdown: (text) => {
+    if (!marked || !text) return text || '';
+    try {
+      // Configure marked for safe inline parsing
+      return marked.parse(text, { breaks: true, gfm: true });
+    } catch (error) {
+      console.error('[Preload] Markdown parsing error:', error);
+      return text;
+    }
+  },
 
   // 창 컨트롤
   minimizeWindow: () => ipcRenderer.invoke('window-minimize'),

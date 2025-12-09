@@ -386,16 +386,22 @@ export class ChatManager {
 
     formatMessage(content) {
         if (!content) return '';
-        // Sanitize raw HTML from RTE
-        // If DOMPurify is available, use it. Otherwise, use a simple escape.
+
+        // First, parse Markdown to HTML using the preload API
+        let htmlContent = content;
+        if (window.electronAPI && window.electronAPI.parseMarkdown) {
+            htmlContent = window.electronAPI.parseMarkdown(content);
+        }
+
+        // Sanitize HTML to prevent XSS
         if (typeof DOMPurify !== 'undefined') {
-            return DOMPurify.sanitize(content, {
-                ALLOWED_TAGS: ['b', 'i', 'u', 's', 'strong', 'em', 'strike', 'ul', 'ol', 'li', 'br', 'p', 'div', 'span', 'code', 'pre'],
-                ALLOWED_ATTR: ['style', 'class']
+            return DOMPurify.sanitize(htmlContent, {
+                ALLOWED_TAGS: ['b', 'i', 'u', 's', 'strong', 'em', 'strike', 'ul', 'ol', 'li', 'br', 'p', 'div', 'span', 'code', 'pre', 'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'a', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'img'],
+                ALLOWED_ATTR: ['style', 'class', 'href', 'target', 'src', 'alt', 'title']
             });
         }
-        // Fallback: simple escape (allows basic formatting)
-        return content;
+        // Fallback: return parsed content
+        return htmlContent;
     }
 
     async sendMessage() {
