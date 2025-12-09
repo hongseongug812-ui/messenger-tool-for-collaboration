@@ -1,8 +1,8 @@
 fastapi==0.115.5
 uvicorn[standard]==0.30.6
 python-socketio==5.11.4
-motor==3.6.0
-pymongo>=4.9,<4.10
+motor>=3.7.0
+pymongo>=4.15
 passlib[bcrypt]==1.7.4
 python-jose==3.3.0
 email-validator==2.2.0
@@ -13,5 +13,6 @@ cryptography==46.0.3
 openai==2.9.0
 pyotp==2.9.0
 qrcode==7.4.2
-pillow==11.0.0
+pillow>=12.0.0
 aiosmtplib==3.0.2
+google-generativeai==0.8.3
