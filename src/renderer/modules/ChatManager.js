@@ -174,6 +174,7 @@ export class ChatManager {
         <div class="message-bubble">${this.formatMessage(msg.content)}</div>
         ${this.renderAttachments(msg.files || [])}
         ${this.renderReactions(msg)}
+        ${this.renderThreadInfo(msg)}
       </div>
     `;
 
@@ -335,6 +336,36 @@ export class ChatManager {
         return `<div class="message-attachments">
       ${files.map(f => `<div class="attachment-item" onclick="app.chatManager.openFilePreview('${f.url}', '${f.name}')">${f.name}</div>`).join('')}
     </div>`;
+    }
+
+    renderThreadInfo(msg) {
+        const replyCount = msg.reply_count || msg.replyCount || 0;
+
+        if (replyCount === 0) {
+            return `
+                <div class="message-thread-actions">
+                    <button class="thread-reply-btn" onclick="app.chatManager.openThread('${msg.id}')">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                            <path d="M7 8h10M7 12h7M7 16h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                            <path d="M3 12h0M21 12h0" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                        </svg>
+                        답글
+                    </button>
+                </div>
+            `;
+        } else {
+            return `
+                <div class="message-thread-actions">
+                    <button class="thread-reply-btn with-count" onclick="app.chatManager.openThread('${msg.id}')">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                            <path d="M7 8h10M7 12h7M7 16h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                            <path d="M3 12h0M21 12h0" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                        </svg>
+                        ${replyCount}개의 답글
+                    </button>
+                </div>
+            `;
+        }
     }
 
     normalizeMessage(msg) {
@@ -550,6 +581,34 @@ export class ChatManager {
                 // Reset file input
                 fileInput.value = '';
             });
+        }
+
+        // Thread panel events
+        const closeThreadBtn = document.getElementById('close-thread-panel');
+        if (closeThreadBtn) {
+            closeThreadBtn.addEventListener('click', () => this.closeThread());
+        }
+
+        const threadInput = document.getElementById('thread-input');
+        const sendThreadReplyBtn = document.getElementById('send-thread-reply');
+
+        if (threadInput) {
+            threadInput.addEventListener('input', () => {
+                if (sendThreadReplyBtn) {
+                    sendThreadReplyBtn.disabled = !threadInput.value.trim();
+                }
+            });
+
+            threadInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    this.sendThreadReply();
+                }
+            });
+        }
+
+        if (sendThreadReplyBtn) {
+            sendThreadReplyBtn.addEventListener('click', () => this.sendThreadReply());
         }
     }
 
@@ -1575,5 +1634,199 @@ export class ChatManager {
             link.download = name;
             link.click();
         }
+    }
+
+    async openThread(messageId) {
+        try {
+            // Find the original message
+            const channelId = this.app.serverManager.currentChannel?.id;
+            if (!channelId) return;
+
+            const messages = this.messages[channelId] || [];
+            const originalMessage = messages.find(m => m.id === messageId);
+
+            if (!originalMessage) {
+                console.error('Original message not found');
+                return;
+            }
+
+            // Store current thread
+            this.currentThreadMessage = originalMessage;
+
+            // Show thread panel
+            const threadPanel = document.getElementById('thread-panel');
+            const threadResizer = document.getElementById('thread-resizer');
+
+            if (threadPanel) {
+                threadPanel.style.display = 'flex';
+                if (threadResizer) threadResizer.style.display = 'block';
+
+                // Render original message
+                this.renderThreadOriginalMessage(originalMessage);
+
+                // Load and render replies
+                await this.loadThreadReplies(messageId);
+            }
+        } catch (error) {
+            console.error('Failed to open thread:', error);
+            this.app.uiManager.showToast('스레드를 열 수 없습니다.', 'error');
+        }
+    }
+
+    renderThreadOriginalMessage(msg) {
+        const container = document.getElementById('thread-original-message');
+        if (!container) return;
+
+        container.innerHTML = `
+            <div class="message">
+                <div class="avatar">${msg.sender.avatar}</div>
+                <div class="message-content">
+                    <div class="message-header">
+                        <span class="message-sender">${msg.sender.name}</span>
+                        <span class="message-time">${msg.time}</span>
+                    </div>
+                    <div class="message-bubble">${this.formatMessage(msg.content)}</div>
+                    ${this.renderAttachments(msg.files || [])}
+                </div>
+            </div>
+        `;
+    }
+
+    async loadThreadReplies(messageId) {
+        try {
+            const response = await this.app.apiRequest(`/messages/${messageId}/replies`);
+
+            if (response && Array.isArray(response)) {
+                const normalizedReplies = response.map(msg => this.normalizeMessage(msg));
+
+                // Update reply count display
+                const replyCountEl = document.getElementById('thread-reply-count');
+                if (replyCountEl) {
+                    replyCountEl.textContent = `${normalizedReplies.length}개의 답글`;
+                }
+
+                // Render replies
+                this.renderThreadReplies(normalizedReplies);
+            }
+        } catch (error) {
+            console.error('Failed to load thread replies:', error);
+            this.app.uiManager.showToast('답글을 불러올 수 없습니다.', 'error');
+        }
+    }
+
+    renderThreadReplies(replies) {
+        const container = document.getElementById('thread-messages');
+        if (!container) return;
+
+        container.innerHTML = '';
+
+        replies.forEach(reply => {
+            const el = document.createElement('div');
+            el.className = `message${reply.sent ? ' sent' : ''}`;
+            el.dataset.messageId = reply.id;
+
+            el.innerHTML = `
+                <div class="avatar">${reply.sender.avatar}</div>
+                <div class="message-content">
+                    <div class="message-header">
+                        <span class="message-sender">${reply.sender.name}</span>
+                        <span class="message-time">${reply.time}</span>
+                    </div>
+                    <div class="message-bubble">${this.formatMessage(reply.content)}</div>
+                    ${this.renderAttachments(reply.files || [])}
+                    ${this.renderReactions(reply)}
+                </div>
+            `;
+
+            // Add reaction hover effect
+            const messageContent = el.querySelector('.message-content');
+            if (messageContent) {
+                messageContent.addEventListener('mouseenter', () => {
+                    this.showReactionButton(el, reply);
+                });
+                messageContent.addEventListener('mouseleave', () => {
+                    this.hideReactionButton(el);
+                });
+            }
+
+            container.appendChild(el);
+        });
+
+        // Scroll to bottom
+        container.scrollTop = container.scrollHeight;
+    }
+
+    async sendThreadReply() {
+        const input = document.getElementById('thread-input');
+        if (!input || !input.value.trim()) return;
+
+        if (!this.currentThreadMessage) {
+            console.error('No thread message set');
+            return;
+        }
+
+        const channelId = this.app.serverManager.currentChannel?.id;
+        if (!channelId) return;
+
+        const messageData = {
+            content: input.value.trim(),
+            files: [],
+            thread_id: this.currentThreadMessage.id,
+            sender: {
+                id: this.app.auth.currentUser?.id || 'guest',
+                name: this.app.auth.currentUser?.name || 'Guest',
+                avatar: this.app.auth.currentUser?.name?.[0] || 'G'
+            }
+        };
+
+        try {
+            const response = await this.app.apiRequest(`/channels/${channelId}/messages`, {
+                method: 'POST',
+                body: JSON.stringify(messageData)
+            });
+
+            if (response) {
+                input.value = '';
+
+                // Reload thread replies
+                await this.loadThreadReplies(this.currentThreadMessage.id);
+
+                // Update reply count in main message
+                const mainMessage = this.messages[channelId]?.find(m => m.id === this.currentThreadMessage.id);
+                if (mainMessage) {
+                    mainMessage.reply_count = (mainMessage.reply_count || 0) + 1;
+                    mainMessage.replyCount = mainMessage.reply_count;
+
+                    // Update UI
+                    const messageEl = document.querySelector(`[data-message-id="${this.currentThreadMessage.id}"]`);
+                    if (messageEl) {
+                        const threadActions = messageEl.querySelector('.message-thread-actions');
+                        if (threadActions) {
+                            threadActions.outerHTML = this.renderThreadInfo(mainMessage);
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Failed to send thread reply:', error);
+            this.app.uiManager.showToast('답글 전송에 실패했습니다.', 'error');
+        }
+    }
+
+    closeThread() {
+        const threadPanel = document.getElementById('thread-panel');
+        const threadResizer = document.getElementById('thread-resizer');
+
+        if (threadPanel) threadPanel.style.display = 'none';
+        if (threadResizer) threadResizer.style.display = 'none';
+
+        this.currentThreadMessage = null;
+
+        // Clear thread content
+        const container = document.getElementById('thread-messages');
+        if (container) container.innerHTML = '';
+
+        const originalMsgContainer = document.getElementById('thread-original-message');
+        if (originalMsgContainer) originalMsgContainer.innerHTML = '';
     }
 }
