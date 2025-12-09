@@ -108,6 +108,15 @@ export class SocketManager {
                 this.app.chatManager.handleReminderNotification(data);
             });
 
+            // Reaction Events
+            window.electronAPI.onSocketEvent('reaction_added', (data) => {
+                this.app.chatManager.handleReactionAdded(data);
+            });
+
+            window.electronAPI.onSocketEvent('reaction_removed', (data) => {
+                this.app.chatManager.handleReactionRemoved(data);
+            });
+
             // WebRTC Events
             window.electronAPI.onSocketEvent('call_user_joined', (data) => {
                 this.app.webRTCManager.handleUserJoined(data);

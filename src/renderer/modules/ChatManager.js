@@ -8,6 +8,23 @@ export class ChatManager {
         this.threads = {};
         this.currentThread = null;
         this.attachedFiles = [];
+        this.selectedCommandIndex = -1;
+
+        // Slash commands definition
+        this.slashCommands = [
+            { name: '/help', description: '명령어 도움말 표시', usage: '/help' },
+            { name: '/remind', description: '리마인더 설정', usage: '/remind me 10m "메시지"' },
+            { name: '/clear', description: '메시지 화면 지우기', usage: '/clear' },
+            { name: '/shrug', description: '어깨 으쓱 이모티콘', usage: '/shrug' },
+            { name: '/tableflip', description: '테이블 뒤집기 이모티콘', usage: '/tableflip' },
+            { name: '/unflip', description: '테이블 되돌리기', usage: '/unflip' },
+            { name: '/disapprove', description: '불만족 표정', usage: '/disapprove' },
+            { name: '/lenny', description: '레니 페이스', usage: '/lenny' },
+            { name: '/away', description: '자리 비움 상태 설정', usage: '/away [메시지]' },
+            { name: '/back', description: '자리 비움 해제', usage: '/back' },
+            { name: '/status', description: '상태 메시지 설정', usage: '/status 상태메시지' },
+            { name: '/giphy', description: 'GIF 검색 (준비중)', usage: '/giphy 검색어' }
+        ];
 
         this.emojiCategories = {
             'smileys': {
@@ -363,6 +380,18 @@ export class ChatManager {
         // Stop typing immediately when sending
         this.emitTyping(false);
 
+        // Get plain text for slash command detection
+        const plainText = input.textContent || input.innerText;
+
+        // Check for slash commands
+        if (plainText.trim().startsWith('/')) {
+            const commandResult = await this.handleSlashCommand(plainText.trim(), channelId);
+            if (commandResult) {
+                this.resetInput();
+                return;
+            }
+        }
+
         const messageData = {
             content, // Sending HTML directly
             files: this.attachedFiles.map(f => ({
@@ -420,6 +449,30 @@ export class ChatManager {
         if (input) {
             // contenteditable keydown
             input.addEventListener('keydown', (e) => {
+                const tooltip = document.getElementById('slash-command-tooltip');
+                const isTooltipVisible = tooltip && tooltip.style.display !== 'none';
+
+                // Handle command tooltip navigation
+                if (isTooltipVisible) {
+                    if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        this.navigateCommandTooltip(1);
+                        return;
+                    } else if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        this.navigateCommandTooltip(-1);
+                        return;
+                    } else if (e.key === 'Tab' || (e.key === 'Enter' && this.selectedCommandIndex >= 0)) {
+                        e.preventDefault();
+                        this.selectCommand();
+                        return;
+                    } else if (e.key === 'Escape') {
+                        e.preventDefault();
+                        this.hideCommandTooltip();
+                        return;
+                    }
+                }
+
                 if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
                     this.sendMessage();
@@ -436,6 +489,14 @@ export class ChatManager {
                 if (sendBtn) {
                     sendBtn.disabled = isEmpty && this.attachedFiles.length === 0;
                 }
+
+                // Show command tooltip if input starts with /
+                const plainText = input.textContent || input.innerText;
+                if (plainText.startsWith('/')) {
+                    this.showCommandTooltip(plainText);
+                } else {
+                    this.hideCommandTooltip();
+                }
             });
 
             // Focus event to mark as read
@@ -443,6 +504,12 @@ export class ChatManager {
                 if (this.app.serverManager.currentChannel) {
                     this.markAsRead(this.app.serverManager.currentChannel.id);
                 }
+            });
+
+            // Blur event to hide tooltip
+            input.addEventListener('blur', () => {
+                // Delay to allow clicking on tooltip items
+                setTimeout(() => this.hideCommandTooltip(), 200);
             });
         }
 
@@ -458,6 +525,31 @@ export class ChatManager {
 
         if (sendBtn) {
             sendBtn.addEventListener('click', () => this.sendMessage());
+        }
+
+        // File attachment
+        const attachBtn = document.getElementById('attach-btn');
+        if (attachBtn) {
+            // Create hidden file input
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.multiple = true;
+            fileInput.style.display = 'none';
+            fileInput.id = 'file-input-hidden';
+            document.body.appendChild(fileInput);
+
+            attachBtn.addEventListener('click', () => {
+                fileInput.click();
+            });
+
+            fileInput.addEventListener('change', async (e) => {
+                const files = Array.from(e.target.files);
+                if (files.length > 0) {
+                    await this.uploadFiles(files);
+                }
+                // Reset file input
+                fileInput.value = '';
+            });
         }
     }
 
@@ -972,7 +1064,516 @@ export class ChatManager {
         }
     }
 
+    handleReactionAdded(data) {
+        const { channelId, messageId, emoji, userId, reactions } = data;
+
+        // Update message in memory
+        if (this.messages[channelId]) {
+            const message = this.messages[channelId].find(m => m.id === messageId);
+            if (message) {
+                message.reactions = reactions;
+
+                // Update UI if this channel is currently displayed
+                if (this.app.serverManager.currentChannel?.id === channelId) {
+                    const messageEl = document.querySelector(`[data-message-id="${messageId}"]`);
+                    if (messageEl) {
+                        const reactionsContainer = messageEl.querySelector('.message-reactions-container');
+                        if (reactionsContainer) {
+                            reactionsContainer.outerHTML = this.renderReactions(message);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    handleReactionRemoved(data) {
+        const { channelId, messageId, emoji, userId, reactions } = data;
+
+        // Update message in memory
+        if (this.messages[channelId]) {
+            const message = this.messages[channelId].find(m => m.id === messageId);
+            if (message) {
+                message.reactions = reactions;
+
+                // Update UI if this channel is currently displayed
+                if (this.app.serverManager.currentChannel?.id === channelId) {
+                    const messageEl = document.querySelector(`[data-message-id="${messageId}"]`);
+                    if (messageEl) {
+                        const reactionsContainer = messageEl.querySelector('.message-reactions-container');
+                        if (reactionsContainer) {
+                            reactionsContainer.outerHTML = this.renderReactions(message);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    async uploadFiles(files) {
+        for (const file of files) {
+            try {
+                // Show uploading indicator
+                this.app.uiManager.showToast(`${file.name} 업로드 중...`, 'info', 0);
+
+                const formData = new FormData();
+                formData.append('file', file);
+
+                const response = await fetch(`${this.app.apiBase}/files/upload`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${this.app.auth.authToken}`
+                    },
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Upload failed: ${response.statusText}`);
+                }
+
+                const fileData = await response.json();
+
+                // Add to attached files
+                this.attachedFiles.push(fileData);
+
+                // Update UI
+                this.updateAttachedFilesUI();
+
+                // Remove uploading toast and show success
+                this.app.uiManager.showToast(`${file.name} 업로드 완료`, 'success');
+            } catch (error) {
+                console.error('File upload error:', error);
+                this.app.uiManager.showToast(`${file.name} 업로드 실패`, 'error');
+            }
+        }
+    }
+
+    updateAttachedFilesUI() {
+        const attachBtn = document.getElementById('attach-btn');
+        if (!attachBtn) return;
+
+        if (this.attachedFiles.length > 0) {
+            attachBtn.innerHTML = `
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="10" fill="var(--accent)" fill-opacity="0.2"/>
+                    <text x="12" y="16" text-anchor="middle" fill="var(--accent)" font-size="12" font-weight="bold">${this.attachedFiles.length}</text>
+                </svg>
+            `;
+
+            // Show attached files preview
+            this.showAttachedFilesPreview();
+        } else {
+            attachBtn.innerHTML = `
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>
+                </svg>
+            `;
+
+            // Hide preview
+            const preview = document.getElementById('attached-files-preview');
+            if (preview) preview.remove();
+        }
+
+        // Enable/disable send button
+        const sendBtn = document.getElementById('send-btn');
+        const input = document.getElementById('message-input');
+        const isEmpty = !input || input.innerHTML.trim() === '' || input.innerHTML.trim() === '<br>';
+        if (sendBtn) {
+            sendBtn.disabled = isEmpty && this.attachedFiles.length === 0;
+        }
+    }
+
+    showAttachedFilesPreview() {
+        // Remove existing preview
+        let preview = document.getElementById('attached-files-preview');
+        if (preview) preview.remove();
+
+        // Create new preview
+        preview = document.createElement('div');
+        preview.id = 'attached-files-preview';
+        preview.className = 'attached-files-preview';
+
+        preview.innerHTML = this.attachedFiles.map((file, index) => `
+            <div class="attached-file-item">
+                <span class="attached-file-name">${file.name}</span>
+                <button class="attached-file-remove" onclick="app.chatManager.removeAttachedFile(${index})">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                        <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </button>
+            </div>
+        `).join('');
+
+        // Insert before input area
+        const inputArea = document.getElementById('input-area');
+        if (inputArea) {
+            inputArea.parentElement.insertBefore(preview, inputArea);
+        }
+    }
+
+    removeAttachedFile(index) {
+        this.attachedFiles.splice(index, 1);
+        this.updateAttachedFilesUI();
+    }
+
+    showCommandTooltip(inputText) {
+        const input = document.getElementById('message-input');
+        if (!input) return;
+
+        // Filter commands based on input
+        const query = inputText.toLowerCase();
+        const filteredCommands = this.slashCommands.filter(cmd =>
+            cmd.name.toLowerCase().startsWith(query)
+        );
+
+        if (filteredCommands.length === 0) {
+            this.hideCommandTooltip();
+            return;
+        }
+
+        // Create or get tooltip
+        let tooltip = document.getElementById('slash-command-tooltip');
+        if (!tooltip) {
+            tooltip = document.createElement('div');
+            tooltip.id = 'slash-command-tooltip';
+            tooltip.className = 'slash-command-tooltip';
+            document.body.appendChild(tooltip);
+        }
+
+        // Populate tooltip
+        tooltip.innerHTML = filteredCommands.map((cmd, index) => `
+            <div class="command-item ${index === 0 ? 'selected' : ''}" data-index="${index}" data-command="${cmd.name}">
+                <div class="command-name">${cmd.name}</div>
+                <div class="command-description">${cmd.description}</div>
+                <div class="command-usage">${cmd.usage}</div>
+            </div>
+        `).join('');
+
+        // Add click handlers
+        tooltip.querySelectorAll('.command-item').forEach(item => {
+            item.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                const commandName = item.dataset.command;
+                this.applyCommand(commandName);
+            });
+        });
+
+        // Position tooltip above input
+        const inputRect = input.getBoundingClientRect();
+        tooltip.style.left = inputRect.left + 'px';
+        tooltip.style.bottom = (window.innerHeight - inputRect.top + 8) + 'px';
+        tooltip.style.display = 'block';
+
+        this.selectedCommandIndex = 0;
+        this.filteredCommands = filteredCommands;
+    }
+
+    hideCommandTooltip() {
+        const tooltip = document.getElementById('slash-command-tooltip');
+        if (tooltip) {
+            tooltip.style.display = 'none';
+        }
+        this.selectedCommandIndex = -1;
+        this.filteredCommands = [];
+    }
+
+    navigateCommandTooltip(direction) {
+        if (!this.filteredCommands || this.filteredCommands.length === 0) return;
+
+        const tooltip = document.getElementById('slash-command-tooltip');
+        if (!tooltip) return;
+
+        // Remove previous selection
+        const prevSelected = tooltip.querySelector('.command-item.selected');
+        if (prevSelected) prevSelected.classList.remove('selected');
+
+        // Update index
+        this.selectedCommandIndex += direction;
+        if (this.selectedCommandIndex < 0) {
+            this.selectedCommandIndex = this.filteredCommands.length - 1;
+        } else if (this.selectedCommandIndex >= this.filteredCommands.length) {
+            this.selectedCommandIndex = 0;
+        }
+
+        // Add new selection
+        const items = tooltip.querySelectorAll('.command-item');
+        if (items[this.selectedCommandIndex]) {
+            items[this.selectedCommandIndex].classList.add('selected');
+            items[this.selectedCommandIndex].scrollIntoView({ block: 'nearest' });
+        }
+    }
+
+    selectCommand() {
+        if (!this.filteredCommands || this.selectedCommandIndex < 0) return;
+
+        const selectedCommand = this.filteredCommands[this.selectedCommandIndex];
+        if (selectedCommand) {
+            this.applyCommand(selectedCommand.name);
+        }
+    }
+
+    applyCommand(commandName) {
+        const input = document.getElementById('message-input');
+        if (!input) return;
+
+        // Find the command to get its usage
+        const command = this.slashCommands.find(cmd => cmd.name === commandName);
+        if (!command) return;
+
+        // Set input to command usage
+        input.textContent = command.usage;
+
+        // Move cursor to end
+        const range = document.createRange();
+        const sel = window.getSelection();
+        range.selectNodeContents(input);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+
+        this.hideCommandTooltip();
+        input.focus();
+    }
+
+    async handleSlashCommand(command, channelId) {
+        const parts = command.split(' ');
+        const commandName = parts[0].toLowerCase();
+
+        try {
+            switch (commandName) {
+                case '/help':
+                    this.showCommandHelp();
+                    return true;
+
+                case '/remind':
+                    return await this.handleRemindCommand(command, channelId);
+
+                case '/clear':
+                    this.clearMessages();
+                    return true;
+
+                case '/shrug':
+                    await this.sendTextMessage('¯\\_(ツ)_/¯', channelId);
+                    return true;
+
+                case '/tableflip':
+                    await this.sendTextMessage('(╯°□°)╯︵ ┻━┻', channelId);
+                    return true;
+
+                case '/unflip':
+                    await this.sendTextMessage('┬─┬ノ( º _ ºノ)', channelId);
+                    return true;
+
+                case '/disapprove':
+                    await this.sendTextMessage('ಠ_ಠ', channelId);
+                    return true;
+
+                case '/lenny':
+                    await this.sendTextMessage('( ͡° ͜ʖ ͡°)', channelId);
+                    return true;
+
+                case '/away':
+                    return await this.handleAwayCommand(parts.slice(1).join(' '), channelId);
+
+                case '/back':
+                    return await this.handleBackCommand(channelId);
+
+                case '/status':
+                    return await this.handleStatusCommand(parts.slice(1).join(' '), channelId);
+
+                case '/giphy':
+                    this.app.uiManager.showToast('GIF 검색 기능은 준비 중입니다.', 'info');
+                    return true;
+
+                default:
+                    this.app.uiManager.showToast(`알 수 없는 명령어: ${commandName}. /help를 입력하여 도움말을 확인하세요.`, 'warning');
+                    return false;
+            }
+        } catch (error) {
+            console.error('Command execution error:', error);
+            this.app.uiManager.showToast('명령어 실행에 실패했습니다.', 'error');
+            return false;
+        }
+    }
+
+    async handleRemindCommand(command, channelId) {
+        // Parse: /remind me 10m "message"
+        const pattern = /^\/remind\s+me\s+(\d+m|\d+h|\d+d|tomorrow)\s+"([^"]+)"/i;
+        const match = command.match(pattern);
+
+        if (!match) {
+            this.app.uiManager.showToast('잘못된 형식입니다. 예: /remind me 10m "메시지"', 'warning');
+            return false;
+        }
+
+        const timeStr = match[1].toLowerCase();
+        const text = match[2];
+
+        // Calculate remind time
+        const now = new Date();
+        let remindAt = new Date(now);
+
+        if (timeStr === 'tomorrow') {
+            remindAt.setDate(remindAt.getDate() + 1);
+            remindAt.setHours(9, 0, 0, 0);
+        } else {
+            const value = parseInt(timeStr);
+            const unit = timeStr[timeStr.length - 1];
+
+            switch (unit) {
+                case 'm':
+                    remindAt.setMinutes(remindAt.getMinutes() + value);
+                    break;
+                case 'h':
+                    remindAt.setHours(remindAt.getHours() + value);
+                    break;
+                case 'd':
+                    remindAt.setDate(remindAt.getDate() + value);
+                    break;
+            }
+        }
+
+        try {
+            const response = await this.app.apiRequest('/reminders', {
+                method: 'POST',
+                body: JSON.stringify({
+                    text,
+                    remind_at: remindAt.toISOString(),
+                    channel_id: channelId
+                })
+            });
+
+            if (response) {
+                const timeString = remindAt.toLocaleString('ko-KR');
+                this.app.uiManager.showToast(`리마인더가 설정되었습니다: ${timeString}`, 'success');
+                return true;
+            }
+        } catch (error) {
+            console.error('Failed to create reminder:', error);
+            this.app.uiManager.showToast('리마인더 생성에 실패했습니다.', 'error');
+        }
+
+        return false;
+    }
+
+    async handleAwayCommand(message, channelId) {
+        const statusMessage = message || '자리 비움';
+
+        // Update user status (you would call an API here)
+        this.app.uiManager.showToast(`자리 비움 상태로 설정되었습니다: ${statusMessage}`, 'info');
+
+        // Optionally send a message to the channel
+        if (message) {
+            await this.sendTextMessage(`🚶 ${statusMessage}`, channelId);
+        }
+
+        return true;
+    }
+
+    async handleBackCommand(channelId) {
+        // Update user status back to online (you would call an API here)
+        this.app.uiManager.showToast('자리 비움이 해제되었습니다.', 'success');
+
+        await this.sendTextMessage('🟢 돌아왔습니다', channelId);
+        return true;
+    }
+
+    async handleStatusCommand(status, channelId) {
+        if (!status) {
+            this.app.uiManager.showToast('상태 메시지를 입력해주세요. 예: /status 회의 중', 'warning');
+            return false;
+        }
+
+        this.app.uiManager.showToast(`상태가 설정되었습니다: ${status}`, 'success');
+        await this.sendTextMessage(`💬 상태: ${status}`, channelId);
+        return true;
+    }
+
+    showCommandHelp() {
+        const helpText = `
+<strong>사용 가능한 명령어:</strong><br><br>
+<strong>/help</strong> - 명령어 도움말 표시<br><br>
+
+<strong>리마인더:</strong><br>
+<strong>/remind me {시간} "{메시지}"</strong> - 리마인더 설정<br>
+  예: /remind me 10m "회의 준비"<br>
+  시간 형식: 10m (분), 1h (시간), 2d (일), tomorrow<br><br>
+
+<strong>유틸리티:</strong><br>
+<strong>/clear</strong> - 현재 채널의 메시지 화면 지우기<br><br>
+
+<strong>상태 관리:</strong><br>
+<strong>/away [메시지]</strong> - 자리 비움 상태 설정<br>
+<strong>/back</strong> - 자리 비움 해제<br>
+<strong>/status {메시지}</strong> - 상태 메시지 설정<br><br>
+
+<strong>이모티콘:</strong><br>
+<strong>/shrug</strong> - ¯\\_(ツ)_/¯<br>
+<strong>/tableflip</strong> - (╯°□°)╯︵ ┻━┻<br>
+<strong>/unflip</strong> - ┬─┬ノ( º _ ºノ)<br>
+<strong>/disapprove</strong> - ಠ_ಠ<br>
+<strong>/lenny</strong> - ( ͡° ͜ʖ ͡°)
+        `;
+
+        // Create help message element
+        const messageEl = document.createElement('div');
+        messageEl.className = 'message system-message';
+        messageEl.innerHTML = `
+            <div class="message-content">
+                <div class="message-bubble system">${helpText}</div>
+            </div>
+        `;
+
+        const messagesList = document.getElementById('messages');
+        if (messagesList) {
+            messagesList.appendChild(messageEl);
+            this.scrollToBottom();
+        }
+    }
+
+    clearMessages() {
+        const messagesList = document.getElementById('messages');
+        if (messagesList) {
+            messagesList.innerHTML = '';
+            this.app.uiManager.showToast('메시지 화면이 지워졌습니다.', 'info');
+        }
+    }
+
+    async sendTextMessage(text, channelId) {
+        const messageData = {
+            content: text,
+            files: [],
+            sender: {
+                id: this.app.auth.currentUser?.id || 'guest',
+                name: this.app.auth.currentUser?.name || 'Guest',
+                avatar: this.app.auth.currentUser?.name?.[0] || 'G'
+            }
+        };
+
+        try {
+            await this.app.apiRequest(`/channels/${channelId}/messages`, {
+                method: 'POST',
+                body: JSON.stringify(messageData)
+            });
+        } catch (error) {
+            console.error('Failed to send message:', error);
+            this.app.uiManager.showToast('메시지 전송에 실패했습니다.', 'error');
+        }
+    }
+
     openFilePreview(url, name) {
-        // ... implementation
+        // Open file in browser or download
+        const fullUrl = `${this.app.apiBase}${url}`;
+
+        // Try to open in new window
+        const newWindow = window.open(fullUrl, '_blank');
+
+        // If popup blocked, offer download
+        if (!newWindow) {
+            const link = document.createElement('a');
+            link.href = fullUrl;
+            link.download = name;
+            link.click();
+        }
     }
 }
