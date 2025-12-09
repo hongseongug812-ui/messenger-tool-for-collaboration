@@ -11,6 +11,7 @@ export class UIManager {
         this.setupResizers();
         this.bindGlobalUIEvents();
         this.bindAllModalCloseButtons();
+        this.bindInputDialogButtons();
         console.log('[UIManager] init() 완료');
     }
 
@@ -36,6 +37,36 @@ export class UIManager {
                 }
             });
         });
+    }
+
+    bindInputDialogButtons() {
+        const okButton = document.getElementById('input-dialog-ok');
+        const cancelButton = document.getElementById('input-dialog-cancel');
+        const input = document.getElementById('input-dialog-input');
+
+        if (okButton) {
+            okButton.addEventListener('click', () => {
+                this.confirmInputDialog();
+            });
+        }
+
+        if (cancelButton) {
+            cancelButton.addEventListener('click', () => {
+                this.closeInputDialog();
+            });
+        }
+
+        if (input) {
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    this.confirmInputDialog();
+                } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    this.closeInputDialog();
+                }
+            });
+        }
     }
 
     loadTheme() {
@@ -485,7 +516,7 @@ export class UIManager {
         };
 
         if (!event.title || !event.date) {
-            alert('제목과 날짜를 입력해주세요.');
+            this.showToast('제목과 날짜를 입력해주세요.', 'warning');
             return;
         }
 
@@ -504,13 +535,13 @@ export class UIManager {
     downloadMessages() {
         const channel = this.app.serverManager?.currentChannel;
         if (!channel) {
-            alert('다운로드할 채널을 선택해주세요.');
+            this.showToast('다운로드할 채널을 선택해주세요.', 'warning');
             return;
         }
 
         const messages = this.app.chatManager?.messages[channel.id] || [];
         if (messages.length === 0) {
-            alert('다운로드할 메시지가 없습니다.');
+            this.showToast('다운로드할 메시지가 없습니다.', 'warning');
             return;
         }
 
@@ -552,7 +583,7 @@ export class UIManager {
     showInputDialog(message, defaultValue = '') {
         return new Promise((resolve) => {
             const overlay = document.getElementById('input-dialog-overlay');
-            const messageEl = document.getElementById('input-dialog-message');
+            const titleEl = document.getElementById('input-dialog-title');
             const input = document.getElementById('input-dialog-input');
 
             // If elements don't exist (not in HTML yet), create them dynamically or assume they exist
@@ -566,7 +597,9 @@ export class UIManager {
                 return;
             }
 
-            messageEl.textContent = message;
+            if (titleEl) {
+                titleEl.textContent = message;
+            }
             input.value = defaultValue;
             overlay.style.display = 'flex';
             input.focus();
@@ -649,5 +682,60 @@ export class UIManager {
 
     showMentionsModal() {
         this.showModal('mentions-modal');
+    }
+
+    showToast(message, type = 'info', duration = 3000) {
+        const container = document.getElementById('toast-container');
+        if (!container) {
+            console.warn('Toast container not found');
+            return;
+        }
+
+        // Create toast element
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+
+        // Icon based on type
+        const icons = {
+            success: '✓',
+            error: '✕',
+            warning: '⚠',
+            info: 'ℹ'
+        };
+
+        toast.innerHTML = `
+            <div class="toast-icon">${icons[type] || icons.info}</div>
+            <div class="toast-content">${message}</div>
+            <button class="toast-close">✕</button>
+        `;
+
+        // Add to container
+        container.appendChild(toast);
+
+        // Close button handler
+        const closeBtn = toast.querySelector('.toast-close');
+        closeBtn.addEventListener('click', () => {
+            this.removeToast(toast);
+        });
+
+        // Auto remove after duration
+        if (duration > 0) {
+            setTimeout(() => {
+                this.removeToast(toast);
+            }, duration);
+        }
+
+        return toast;
+    }
+
+    removeToast(toast) {
+        if (!toast || !toast.parentElement) return;
+
+        toast.classList.add('toast-hide');
+        setTimeout(() => {
+            if (toast.parentElement) {
+                toast.parentElement.removeChild(toast);
+            }
+        }, 300); // Match animation duration
     }
 }

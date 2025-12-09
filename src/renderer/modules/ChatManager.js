@@ -156,6 +156,7 @@ export class ChatManager {
         </div>
         <div class="message-bubble">${this.formatMessage(msg.content)}</div>
         ${this.renderAttachments(msg.files || [])}
+        ${this.renderReactions(msg)}
       </div>
     `;
 
@@ -164,7 +165,152 @@ export class ChatManager {
             this.showMessageContextMenu(e, msg);
         });
 
+        // Add reaction button hover effect
+        const messageContent = el.querySelector('.message-content');
+        if (messageContent) {
+            messageContent.addEventListener('mouseenter', () => {
+                this.showReactionButton(el, msg);
+            });
+            messageContent.addEventListener('mouseleave', () => {
+                this.hideReactionButton(el);
+            });
+        }
+
         return el;
+    }
+
+    renderReactions(msg) {
+        if (!msg.reactions || msg.reactions.length === 0) {
+            return '<div class="message-reactions-container"></div>';
+        }
+
+        const currentUserId = this.app.auth.currentUser?.id;
+        const reactionsHTML = msg.reactions.map(reaction => {
+            const count = reaction.users.length;
+            const isActive = reaction.users.includes(currentUserId);
+            return `
+                <div class="reaction ${isActive ? 'active' : ''}"
+                     data-emoji="${reaction.emoji}"
+                     onclick="app.chatManager.toggleReaction('${msg.id}', '${reaction.emoji}')">
+                    <span class="reaction-emoji">${reaction.emoji}</span>
+                    <span class="reaction-count">${count}</span>
+                </div>
+            `;
+        }).join('');
+
+        return `
+            <div class="message-reactions-container">
+                <div class="message-reactions">
+                    ${reactionsHTML}
+                    <button class="reaction-add-btn" onclick="app.chatManager.showReactionPicker('${msg.id}', event)">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5"/>
+                            <path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        `;
+    }
+
+    showReactionButton(messageEl, msg) {
+        // Add a floating reaction button if reactions container is empty
+        const container = messageEl.querySelector('.message-reactions-container');
+        if (container && !container.querySelector('.reaction-hover-btn')) {
+            const btn = document.createElement('button');
+            btn.className = 'reaction-hover-btn';
+            btn.innerHTML = `
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5"/>
+                    <path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+            `;
+            btn.onclick = (e) => this.showReactionPicker(msg.id, e);
+            container.appendChild(btn);
+        }
+    }
+
+    hideReactionButton(messageEl) {
+        const btn = messageEl.querySelector('.reaction-hover-btn');
+        if (btn) {
+            btn.remove();
+        }
+    }
+
+    async toggleReaction(messageId, emoji) {
+        const currentUserId = this.app.auth.currentUser?.id;
+        if (!currentUserId) return;
+
+        try {
+            // Find if user already reacted
+            const msg = this.messages[this.app.serverManager.currentChannel.id]?.find(m => m.id === messageId);
+            const reaction = msg?.reactions?.find(r => r.emoji === emoji);
+            const hasReacted = reaction?.users.includes(currentUserId);
+
+            if (hasReacted) {
+                // Remove reaction
+                await this.app.apiRequest(`/messages/${messageId}/reactions`, {
+                    method: 'DELETE',
+                    body: JSON.stringify({ emoji, user_id: currentUserId })
+                });
+            } else {
+                // Add reaction
+                await this.app.apiRequest(`/messages/${messageId}/reactions`, {
+                    method: 'POST',
+                    body: JSON.stringify({ emoji, user_id: currentUserId })
+                });
+            }
+        } catch (error) {
+            console.error('Failed to toggle reaction:', error);
+        }
+    }
+
+    showReactionPicker(messageId, event) {
+        event.stopPropagation();
+
+        // Common emoji list
+        const emojis = ['👍', '❤️', '😂', '😮', '😢', '😡', '🎉', '🔥'];
+
+        // Create picker popup
+        const picker = document.createElement('div');
+        picker.className = 'reaction-picker';
+        picker.innerHTML = emojis.map(emoji => `
+            <button class="reaction-picker-emoji" onclick="app.chatManager.selectReaction('${messageId}', '${emoji}'); this.parentElement.remove();">
+                ${emoji}
+            </button>
+        `).join('');
+
+        // Position picker
+        const rect = event.target.getBoundingClientRect();
+        picker.style.position = 'fixed';
+        picker.style.left = rect.left + 'px';
+        picker.style.top = (rect.top - 50) + 'px';
+
+        document.body.appendChild(picker);
+
+        // Close on click outside
+        setTimeout(() => {
+            document.addEventListener('click', function closePickerHandler(e) {
+                if (!picker.contains(e.target)) {
+                    picker.remove();
+                    document.removeEventListener('click', closePickerHandler);
+                }
+            });
+        }, 10);
+    }
+
+    async selectReaction(messageId, emoji) {
+        const currentUserId = this.app.auth.currentUser?.id;
+        if (!currentUserId) return;
+
+        try {
+            await this.app.apiRequest(`/messages/${messageId}/reactions`, {
+                method: 'POST',
+                body: JSON.stringify({ emoji, user_id: currentUserId })
+            });
+        } catch (error) {
+            console.error('Failed to add reaction:', error);
+        }
     }
 
     renderAttachments(files) {

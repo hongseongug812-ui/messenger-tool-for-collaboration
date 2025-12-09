@@ -830,9 +830,18 @@ class ChannelUpdate(BaseModel):
   post_permission: Optional[str] = None
 
 
+class ChannelMove(BaseModel):
+  target_category_id: str = Field(..., min_length=1)
+
+
 class DMCreate(BaseModel):
   participants: List[str] = Field(..., min_items=1, max_items=10)  # User IDs (for 1:1 DM, length=1; for group DM, length>1)
   name: Optional[str] = Field(default=None, max_length=80)  # Optional name for group DMs
+
+
+class Reaction(BaseModel):
+  emoji: str  # 이모지 문자
+  users: List[str] = Field(default_factory=list)  # 반응한 사용자 ID 목록
 
 
 class Message(BaseModel):
@@ -846,6 +855,7 @@ class Message(BaseModel):
   reply_count: int = 0  # 이 메시지에 달린 답글 수
   edited_at: Optional[datetime] = None  # 수정된 시간
   is_deleted: bool = False  # 삭제 여부
+  reactions: List[Reaction] = Field(default_factory=list)  # 이모지 리액션
 
 
 class MessageCreate(BaseModel):
@@ -2119,6 +2129,69 @@ async def delete_channel(server_id: str, category_id: str, channel_id: str):
   return None
 
 
+@fastapi_app.post(
+    "/servers/{server_id}/categories/{category_id}/channels/{channel_id}/move",
+    response_model=Channel,
+    status_code=200,
+)
+async def move_channel(
+    server_id: str,
+    category_id: str,
+    channel_id: str,
+    payload: ChannelMove
+):
+  """Move a channel from one category to another"""
+  # First, get the server to find the channel
+  server = await servers_col.find_one({"_id": server_id})
+  if not server:
+    raise HTTPException(status_code=404, detail="Server not found")
+
+  # Find the channel in the source category
+  channel_to_move = None
+  for cat in server.get("categories", []):
+    if cat["id"] == category_id:
+      for ch in cat.get("channels", []):
+        if ch["id"] == channel_id:
+          channel_to_move = ch
+          break
+      break
+
+  if not channel_to_move:
+    raise HTTPException(status_code=404, detail="Channel not found in source category")
+
+  # Verify target category exists
+  target_exists = False
+  for cat in server.get("categories", []):
+    if cat["id"] == payload.target_category_id:
+      target_exists = True
+      break
+
+  if not target_exists:
+    raise HTTPException(status_code=404, detail="Target category not found")
+
+  # Remove channel from source category
+  remove_result = await servers_col.update_one(
+      {"_id": server_id},
+      {"$pull": {"categories.$[cat].channels": {"id": channel_id}}},
+      array_filters=[{"cat.id": category_id}],
+  )
+
+  if remove_result.modified_count == 0:
+    raise HTTPException(status_code=500, detail="Failed to remove channel from source category")
+
+  # Add channel to target category
+  add_result = await servers_col.update_one(
+      {"_id": server_id},
+      {"$push": {"categories.$[cat].channels": channel_to_move}},
+      array_filters=[{"cat.id": payload.target_category_id}],
+  )
+
+  if add_result.modified_count == 0:
+    raise HTTPException(status_code=500, detail="Failed to add channel to target category")
+
+  return channel_to_move
+
+
 # ============ DM Channel Endpoints ============
 
 @fastapi_app.post("/dm", response_model=Channel, status_code=201)
@@ -2260,6 +2333,7 @@ async def list_messages(channel_id: str):
             files=[FileAttachment(**f) for f in doc.get("files", [])],
             thread_id=doc.get("thread_id"),
             reply_count=doc.get("reply_count", 0),
+            reactions=[Reaction(**r) for r in doc.get("reactions", [])],
         )
     )
   return messages
@@ -2292,6 +2366,7 @@ async def list_thread_replies(message_id: str):
             files=[FileAttachment(**f) for f in doc.get("files", [])],
             thread_id=doc.get("thread_id"),
             reply_count=doc.get("reply_count", 0),
+            reactions=[Reaction(**r) for r in doc.get("reactions", [])],
         )
     )
   return replies
@@ -2492,6 +2567,98 @@ async def delete_message(
   )
 
   return {"status": "deleted", "message_id": message_id}
+
+
+# -----------------------------
+# 리액션 API
+# -----------------------------
+@fastapi_app.post("/messages/{message_id}/reactions")
+async def add_reaction(message_id: str, emoji: str = Body(...), user_id: str = Body(...)):
+  """메시지에 이모지 리액션 추가"""
+  msg_doc = await messages_col.find_one({"_id": message_id})
+  if not msg_doc:
+    raise HTTPException(status_code=404, detail="Message not found")
+
+  # reactions 배열 가져오기 (없으면 빈 배열)
+  reactions = msg_doc.get("reactions", [])
+
+  # 해당 이모지가 이미 있는지 확인
+  emoji_reaction = None
+  for reaction in reactions:
+    if reaction.get("emoji") == emoji:
+      emoji_reaction = reaction
+      break
+
+  if emoji_reaction:
+    # 이미 있는 이모지인 경우, 사용자가 이미 반응했는지 확인
+    if user_id not in emoji_reaction.get("users", []):
+      # 사용자 추가
+      await messages_col.update_one(
+        {"_id": message_id, "reactions.emoji": emoji},
+        {"$addToSet": {"reactions.$.users": user_id}}
+      )
+  else:
+    # 새로운 이모지 리액션 추가
+    await messages_col.update_one(
+      {"_id": message_id},
+      {"$push": {"reactions": {"emoji": emoji, "users": [user_id]}}}
+    )
+
+  # 업데이트된 메시지 가져오기
+  updated_msg = await messages_col.find_one({"_id": message_id})
+
+  # Socket.IO로 브로드캐스트
+  await sio.emit(
+    "reaction_added",
+    {
+      "channelId": msg_doc["channel_id"],
+      "messageId": message_id,
+      "emoji": emoji,
+      "userId": user_id,
+      "reactions": updated_msg.get("reactions", [])
+    },
+    room=msg_doc["channel_id"]
+  )
+
+  return {"status": "added", "reactions": updated_msg.get("reactions", [])}
+
+
+@fastapi_app.delete("/messages/{message_id}/reactions")
+async def remove_reaction(message_id: str, emoji: str = Body(...), user_id: str = Body(...)):
+  """메시지에서 이모지 리액션 제거"""
+  msg_doc = await messages_col.find_one({"_id": message_id})
+  if not msg_doc:
+    raise HTTPException(status_code=404, detail="Message not found")
+
+  # 해당 이모지에서 사용자 제거
+  await messages_col.update_one(
+    {"_id": message_id, "reactions.emoji": emoji},
+    {"$pull": {"reactions.$.users": user_id}}
+  )
+
+  # users가 빈 배열인 이모지 제거
+  await messages_col.update_one(
+    {"_id": message_id},
+    {"$pull": {"reactions": {"users": {"$size": 0}}}}
+  )
+
+  # 업데이트된 메시지 가져오기
+  updated_msg = await messages_col.find_one({"_id": message_id})
+
+  # Socket.IO로 브로드캐스트
+  await sio.emit(
+    "reaction_removed",
+    {
+      "channelId": msg_doc["channel_id"],
+      "messageId": message_id,
+      "emoji": emoji,
+      "userId": user_id,
+      "reactions": updated_msg.get("reactions", []) if updated_msg else []
+    },
+    room=msg_doc["channel_id"]
+  )
+
+  return {"status": "removed", "reactions": updated_msg.get("reactions", []) if updated_msg else []}
 
 
 # -----------------------------

@@ -12,7 +12,9 @@
       "Bash(echo:*)",
       "Bash(uvicorn:*)",
       "Bash(timeout:*)",
-      "Bash(npm run build:win:*)"
+      "Bash(npm run build:win:*)",
+      "Bash(test:*)",
+      "Bash(unset:*)"
     ],
     "deny": [],
     "ask": []

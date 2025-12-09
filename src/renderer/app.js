@@ -156,14 +156,23 @@ class WorkMessenger {
     }
 
     try {
+      console.log('[API] Request:', options.method || 'GET', url);
+      if (options.body) {
+        console.log('[API] Request body:', options.body);
+      }
+
       const response = await fetch(url, { ...options, headers });
+      console.log('[API] Response status:', response.status);
+
       if (response.status === 401) {
         this.auth.handleLogout('세션이 만료되었습니다. 다시 로그인해주세요.');
         return null; // Stop processing
       }
 
       const text = await response.text();
-      return text ? JSON.parse(text) : {};
+      const result = text ? JSON.parse(text) : {};
+      console.log('[API] Response data:', result);
+      return result;
 
     } catch (error) {
       console.error(`API Request Error [${endpoint}]:`, error);
@@ -208,4 +217,67 @@ window.WorkMessenger = WorkMessenger;
 // App Start
 document.addEventListener('DOMContentLoaded', () => {
   window.app = new WorkMessenger();
+
+  // Debug helper function for testing channel move
+  window.testChannelMove = async (channelId, fromCategoryId, toCategoryId) => {
+    console.log('[Test] Testing channel move...');
+    console.log('[Test] Channel ID:', channelId);
+    console.log('[Test] From Category ID:', fromCategoryId);
+    console.log('[Test] To Category ID:', toCategoryId);
+
+    const server = window.app.serverManager.currentServer;
+    if (!server) {
+      console.error('[Test] No server selected');
+      return;
+    }
+
+    console.log('[Test] Server ID:', server.id);
+
+    try {
+      const url = `/servers/${server.id}/categories/${fromCategoryId}/channels/${channelId}/move`;
+      const payload = { target_category_id: toCategoryId };
+
+      console.log('[Test] Request URL:', url);
+      console.log('[Test] Payload:', payload);
+
+      const response = await window.app.apiRequest(url, {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+
+      console.log('[Test] Response:', response);
+      console.log('[Test] Channel moved successfully!');
+
+      // Reload server data
+      await window.app.serverManager.loadServerData();
+    } catch (error) {
+      console.error('[Test] Failed to move channel:', error);
+    }
+  };
+
+  // Helper function to print current server structure
+  window.printServerStructure = () => {
+    const server = window.app.serverManager.currentServer;
+    if (!server) {
+      console.log('No server selected');
+      return;
+    }
+
+    console.log('=== Current Server Structure ===');
+    console.log('Server ID:', server.id);
+    console.log('Server Name:', server.name);
+    console.log('\nCategories:');
+
+    server.categories?.forEach(cat => {
+      console.log(`\n  Category: ${cat.name} (${cat.id})`);
+      console.log('  Channels:');
+      cat.channels?.forEach(ch => {
+        console.log(`    - ${ch.name} (${ch.id})`);
+      });
+    });
+  };
+
+  console.log('[Debug] Helper functions loaded:');
+  console.log('  - window.printServerStructure() : 현재 서버 구조 출력');
+  console.log('  - window.testChannelMove(channelId, fromCategoryId, toCategoryId) : 채널 이동 테스트');
 });

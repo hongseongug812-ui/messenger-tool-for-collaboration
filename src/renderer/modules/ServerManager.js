@@ -54,6 +54,12 @@ export class ServerManager {
             }
         });
 
+        // Category creation button
+        const btnNewCategory = document.getElementById('btn-new-category');
+        btnNewCategory?.addEventListener('click', () => {
+            this.showCreateCategoryDialog();
+        });
+
         // Channel creation button
         const btnNewChannel = document.getElementById('btn-new-channel');
         btnNewChannel?.addEventListener('click', () => {
@@ -61,17 +67,54 @@ export class ServerManager {
         });
     }
 
-    async showCreateChannelDialog() {
-        const channelName = prompt('새 채널 이름을 입력하세요:');
-        if (!channelName || !channelName.trim()) return;
-
+    async showCreateCategoryDialog() {
         if (!this.currentServer) {
-            alert('서버를 먼저 선택해주세요.');
+            this.app.uiManager.showToast('서버를 먼저 선택해주세요.', 'warning');
             return;
         }
 
+        const categoryName = await this.app.uiManager.showInputDialog('새 카테고리 이름을 입력하세요:');
+        if (!categoryName || !categoryName.trim()) return;
+
         try {
-            const response = await this.app.apiRequest(`/servers/${this.currentServer.id}/channels`, {
+            const response = await this.app.apiRequest(`/servers/${this.currentServer.id}/categories`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    name: categoryName.trim()
+                })
+            });
+
+            if (response) {
+                // Reload server data
+                await this.loadServerData();
+                this.app.uiManager.showToast('카테고리가 생성되었습니다.', 'success');
+            }
+        } catch (error) {
+            console.error('카테고리 생성 실패:', error);
+            this.app.uiManager.showToast('카테고리 생성에 실패했습니다.', 'error');
+        }
+    }
+
+    async showCreateChannelDialog() {
+        if (!this.currentServer) {
+            this.app.uiManager.showToast('서버를 먼저 선택해주세요.', 'warning');
+            return;
+        }
+
+        // Check if server has at least one category
+        if (!this.currentServer.categories || this.currentServer.categories.length === 0) {
+            this.app.uiManager.showToast('먼저 카테고리를 생성해주세요.', 'warning');
+            return;
+        }
+
+        const channelName = await this.app.uiManager.showInputDialog('새 채널 이름을 입력하세요:');
+        if (!channelName || !channelName.trim()) return;
+
+        // Use the first category by default (or we could let user select)
+        const categoryId = this.currentServer.categories[0].id;
+
+        try {
+            const response = await this.app.apiRequest(`/servers/${this.currentServer.id}/categories/${categoryId}/channels`, {
                 method: 'POST',
                 body: JSON.stringify({
                     name: channelName.trim(),
@@ -80,13 +123,24 @@ export class ServerManager {
             });
 
             if (response) {
+                const newChannelId = response.id;
                 // Reload server data
                 await this.loadServerData();
-                alert('채널이 생성되었습니다.');
+
+                // Find and select the newly created channel
+                for (const category of this.currentServer.categories || []) {
+                    const newChannel = category.channels?.find(ch => ch.id === newChannelId);
+                    if (newChannel) {
+                        await this.selectChannel(newChannel);
+                        break;
+                    }
+                }
+
+                this.app.uiManager.showToast('채널이 생성되었습니다.', 'success');
             }
         } catch (error) {
             console.error('채널 생성 실패:', error);
-            alert('채널 생성에 실패했습니다.');
+            this.app.uiManager.showToast('채널 생성에 실패했습니다.', 'error');
         }
     }
 
@@ -245,10 +299,10 @@ export class ServerManager {
 
         // Server Menu
         document.getElementById('ctx-server-invite')?.addEventListener('click', () => {
-            if (this.serverContextTarget) alert(`초대하기: ${this.serverContextTarget.name}`); // Stub
+            if (this.serverContextTarget) this.app.uiManager.showToast(`초대하기: ${this.serverContextTarget.name}`, 'info'); // Stub
         });
         document.getElementById('ctx-server-settings')?.addEventListener('click', () => {
-            if (this.serverContextTarget) alert(`서버 설정: ${this.serverContextTarget.name}`); // Stub
+            if (this.serverContextTarget) this.app.uiManager.showToast(`서버 설정: ${this.serverContextTarget.name}`, 'info'); // Stub
         });
         document.getElementById('ctx-server-leave')?.addEventListener('click', () => {
             if (this.serverContextTarget) {
@@ -315,7 +369,7 @@ export class ServerManager {
             }
         } catch (error) {
             console.error('서버 생성 실패:', error);
-            alert('서버 생성에 실패했습니다.');
+            this.app.uiManager.showToast('서버 생성에 실패했습니다.', 'error');
         }
     }
 
@@ -343,6 +397,9 @@ export class ServerManager {
                 }
             }
 
+            // Remember current server ID before updating
+            const currentServerId = this.currentServer?.id;
+
             this.servers = servers.map(server => ({
                 ...server,
                 categories: (server.categories || []).map(cat => ({
@@ -355,16 +412,26 @@ export class ServerManager {
                 return false;
             }
 
-            this.currentServer = this.servers[0];
+            // Try to keep the current server selected, otherwise select first
+            if (currentServerId) {
+                const foundServer = this.servers.find(s => s.id === currentServerId);
+                this.currentServer = foundServer || this.servers[0];
+            } else {
+                this.currentServer = this.servers[0];
+            }
+
             this.renderServerList();
             this.renderChannelList();
 
             // Fetch unread counts
             await this.fetchUnreadCounts();
 
-            const firstChannel = this.currentServer.categories?.[0]?.channels?.[0];
-            if (firstChannel) {
-                await this.selectChannel(firstChannel);
+            // Only select first channel if no current channel
+            if (!this.currentChannel) {
+                const firstChannel = this.currentServer.categories?.[0]?.channels?.[0];
+                if (firstChannel) {
+                    await this.selectChannel(firstChannel);
+                }
             }
             return true;
         } catch (error) {
@@ -467,6 +534,7 @@ export class ServerManager {
         (this.currentServer.categories || []).forEach(category => {
             const categoryEl = document.createElement('div');
             categoryEl.className = 'category-item';
+            categoryEl.dataset.categoryId = category.id;
 
             const header = document.createElement('div');
             header.className = 'category-header';
@@ -486,6 +554,9 @@ export class ServerManager {
                 const channelsList = document.createElement('div');
                 channelsList.className = 'category-channels';
 
+                // Add drop zone functionality
+                this.setupDropZone(channelsList, category);
+
                 (category.channels || []).forEach(channel => {
                     const channelEl = this.createChannelElement(channel, category);
                     channelsList.appendChild(channelEl);
@@ -504,6 +575,8 @@ export class ServerManager {
 
         div.className = `channel-item${this.currentChannel?.id === channel.id ? ' active' : ''}${hasUnread ? ' unread' : ''}`;
         div.dataset.channelId = channel.id;
+        div.dataset.categoryId = category.id;
+        div.draggable = true;
 
         div.innerHTML = `
         <svg class="channel-icon" width="18" height="18" viewBox="0 0 24 24" fill="none">
@@ -519,6 +592,22 @@ export class ServerManager {
         div.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             this.showChannelContextMenu(e, channel);
+        });
+
+        // Drag events
+        div.addEventListener('dragstart', (e) => {
+            e.stopPropagation();
+            console.log('[Drag] Drag started for channel:', channel.name, 'from category:', category.name);
+            this.draggedChannel = { channel, fromCategory: category };
+            div.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', channel.id);
+        });
+
+        div.addEventListener('dragend', (e) => {
+            console.log('[Drag] Drag ended for channel:', channel.name);
+            div.classList.remove('dragging');
+            this.draggedChannel = null;
         });
 
         return div;
@@ -595,11 +684,89 @@ export class ServerManager {
         try {
             const data = await this.app.apiRequest(`/channels/${channelId}/members`);
             if (Array.isArray(data)) {
-                this.channelMembers[channelId] = data;
+                // Remove duplicates by ID
+                const uniqueMembers = [];
+                const seenIds = new Set();
+                for (const member of data) {
+                    if (!seenIds.has(member.id)) {
+                        seenIds.add(member.id);
+                        uniqueMembers.push(member);
+                    }
+                }
+                this.channelMembers[channelId] = uniqueMembers;
             }
         } catch (e) {
             console.error('Failed to fetch members:', e);
             this.channelMembers[channelId] = [];
+        }
+    }
+
+    setupDropZone(channelsList, category) {
+        channelsList.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (this.draggedChannel && this.draggedChannel.fromCategory.id !== category.id) {
+                console.log('[Drag] Dragging over category:', category.name);
+                channelsList.classList.add('drag-over');
+                e.dataTransfer.dropEffect = 'move';
+            }
+        });
+
+        channelsList.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            channelsList.classList.remove('drag-over');
+        });
+
+        channelsList.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('[Drag] Drop event triggered on category:', category.name);
+            console.log('[Drag] draggedChannel:', this.draggedChannel);
+            channelsList.classList.remove('drag-over');
+
+            if (this.draggedChannel && this.draggedChannel.fromCategory.id !== category.id) {
+                console.log('[Drag] Valid drop - moving channel');
+                await this.moveChannelToCategory(
+                    this.draggedChannel.channel,
+                    this.draggedChannel.fromCategory,
+                    category
+                );
+            } else {
+                console.log('[Drag] Invalid drop - same category or no dragged channel');
+            }
+        });
+    }
+
+    async moveChannelToCategory(channel, fromCategory, toCategory) {
+        try {
+            console.log(`[Move] Starting move: channel ${channel.name} (${channel.id})`);
+            console.log(`[Move] From category: ${fromCategory.name} (${fromCategory.id})`);
+            console.log(`[Move] To category: ${toCategory.name} (${toCategory.id})`);
+            console.log(`[Move] Server ID: ${this.currentServer.id}`);
+
+            const url = `/servers/${this.currentServer.id}/categories/${fromCategory.id}/channels/${channel.id}/move`;
+            const payload = { target_category_id: toCategory.id };
+
+            console.log(`[Move] Request URL: ${url}`);
+            console.log(`[Move] Request payload:`, payload);
+
+            // Call backend API to move channel
+            const response = await this.app.apiRequest(url, {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+
+            console.log('[Move] API response:', response);
+
+            // Reload server data to reflect changes
+            await this.loadServerData();
+
+            console.log('[Move] Channel moved successfully');
+            this.app.uiManager.showToast('채널이 이동되었습니다.', 'success');
+        } catch (error) {
+            console.error('[Move] Failed to move channel:', error);
+            this.app.uiManager.showToast('채널 이동에 실패했습니다.', 'error');
         }
     }
 
@@ -633,9 +800,12 @@ export class ServerManager {
                 this.channelMembers[channelId] = [];
             }
             // 중복 체크
-            if (!this.channelMembers[channelId].find(m => m.id === member.id)) {
+            const existingMember = this.channelMembers[channelId].find(m => m.id === member.id);
+            if (!existingMember) {
                 this.channelMembers[channelId].push(member);
                 this.renderMembers();
+            } else {
+                console.log('[ServerManager] 중복 멤버 참여 이벤트 무시:', member.id);
             }
         }
     }
