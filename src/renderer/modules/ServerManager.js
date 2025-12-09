@@ -617,4 +617,43 @@ export class ServerManager {
             menu.style.top = `${e.pageY}px`;
         }
     }
+
+    // Socket.IO 이벤트 핸들러들
+    handleMemberJoined(data) {
+        console.log('[ServerManager] 멤버 참여:', data);
+        const { channelId, member } = data;
+        if (this.currentChannel?.id === channelId) {
+            // 멤버 목록에 추가
+            if (!this.channelMembers[channelId]) {
+                this.channelMembers[channelId] = [];
+            }
+            // 중복 체크
+            if (!this.channelMembers[channelId].find(m => m.id === member.id)) {
+                this.channelMembers[channelId].push(member);
+                this.renderMembers();
+            }
+        }
+    }
+
+    handleMemberLeft(data) {
+        console.log('[ServerManager] 멤버 나감:', data);
+        const { channelId, userId } = data;
+        if (this.currentChannel?.id === channelId && this.channelMembers[channelId]) {
+            this.channelMembers[channelId] = this.channelMembers[channelId].filter(m => m.id !== userId);
+            this.renderMembers();
+        }
+    }
+
+    handleUserStatusChanged(data) {
+        console.log('[ServerManager] 사용자 상태 변경:', data);
+        const { userId, status } = data;
+        // 현재 채널의 멤버 목록에서 해당 사용자 상태 업데이트
+        if (this.currentChannel?.id && this.channelMembers[this.currentChannel.id]) {
+            const member = this.channelMembers[this.currentChannel.id].find(m => m.id === userId);
+            if (member) {
+                member.status = status;
+                this.renderMembers();
+            }
+        }
+    }
 }

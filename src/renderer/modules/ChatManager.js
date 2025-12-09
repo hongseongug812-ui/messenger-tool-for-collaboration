@@ -368,7 +368,7 @@ export class ChatManager {
         // Emit explicit socket event for real-time
         this.app.socketManager.emit('channel_read', { channelId });
         // Also call API to ensure persistence (though socket handler now does DB update too, redundancies can be removed often)
-        this.app.apiRequest(`/channels/${channelId}/mark-read`, 'POST');
+        this.app.apiRequest(`/channels/${channelId}/mark-read`, { method: 'POST' });
     }
 
     handleUserReadUpdate(data) {

@@ -39,8 +39,15 @@ class WorkMessenger {
     }
 
     if (this.auth.isAuthenticated) {
-      await this.serverManager.loadServerData();
+      // 먼저 소켓 연결 시작
       this.socketManager.connect();
+
+      // 소켓 연결 완료 대기 (최대 5초)
+      await this.waitForSocketConnection(5000);
+
+      // 그 다음 서버 데이터 로드 (채널 선택 시 join 이벤트 발생)
+      await this.serverManager.loadServerData();
+
       // Update UI with user info
       if (this.auth.currentUser) {
         this.updateUserInfo(this.auth.currentUser);
@@ -113,6 +120,27 @@ class WorkMessenger {
 
   closeNotificationSettingsModal() {
     this.uiManager.hideModal('notification-settings-modal');
+  }
+
+  // 소켓 연결 완료 대기
+  waitForSocketConnection(timeout = 5000) {
+    return new Promise((resolve) => {
+      const startTime = Date.now();
+
+      const checkConnection = () => {
+        if (window.electronAPI?.isSocketConnected?.()) {
+          console.log('[WorkMessenger] 소켓 연결 완료!');
+          resolve(true);
+        } else if (Date.now() - startTime >= timeout) {
+          console.warn('[WorkMessenger] 소켓 연결 타임아웃 - 계속 진행합니다');
+          resolve(false);
+        } else {
+          setTimeout(checkConnection, 100);
+        }
+      };
+
+      checkConnection();
+    });
   }
 
   // Central API Request Method

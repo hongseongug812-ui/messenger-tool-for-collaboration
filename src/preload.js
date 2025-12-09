@@ -111,23 +111,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Electron 환경에 최적화된 설정
     const socketOptions = {
       path: '/socket.io',
-      transports: ['polling', 'websocket'],  // polling을 먼저 시도
+      transports: ['polling', 'websocket'],  // Polling 우선 - namespace handshake 안정화
       reconnection: true,
       reconnectionAttempts: 20,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
-      timeout: 20000,
+      timeout: 30000,
       autoConnect: true,
       withCredentials: false,
       forceNew: true,
       upgrade: true,
-      rememberUpgrade: true,
-      // Electron 환경 추가 옵션
       closeOnBeforeunload: false,
-      secure: url.startsWith('https'),
-      rejectUnauthorized: false,
-      // 인증 토큰 추가
-      auth: token ? { token: token } : undefined
+      // auth 제거하여 테스트 - python-socketio가 auth 처리 안할 수 있음
     };
 
     console.log('[Preload] Socket options:', socketOptions);
@@ -139,10 +134,42 @@ contextBridge.exposeInMainWorld('electronAPI', {
       console.log('[Preload] Socket ID:', socket.id);
       console.log('[Preload] Socket connected:', socket.connected);
 
+      // Engine.IO 레벨 이벤트 로그
+      socket.io.on('open', () => {
+        console.log('[Preload Engine] 🔓 Engine 열림');
+      });
+
+      socket.io.on('error', (err) => {
+        console.error('[Preload Engine] ❌ Engine 오류:', err);
+      });
+
+      socket.io.on('close', (reason) => {
+        console.log('[Preload Engine] 🔒 Engine 닫힘:', reason);
+      });
+
       // 디버깅을 위한 추가 이벤트 리스너
       socket.on('connect', () => {
         console.log('[Preload Socket] ✅ 연결 성공! Socket ID:', socket.id);
         console.log('[Preload Socket] Transport:', socket.io?.engine?.transport?.name);
+      });
+
+      // Engine 패킷 모니터링 - 모든 패킷 로깅
+      socket.io.engine.on('packet', (packet) => {
+        console.log('[Preload Engine] 📦 패킷 수신:', packet.type, packet.data ? packet.data.substring(0, 100) : '');
+      });
+
+      socket.io.engine.on('packetCreate', (packet) => {
+        console.log('[Preload Engine] 📤 패킷 전송:', packet.type, packet.data ? packet.data.substring(0, 100) : '');
+      });
+
+      // 메시지 수신 디버깅
+      socket.on('message', (data) => {
+        console.log('[Preload Socket] 📩 메시지 수신:', data);
+      });
+
+      // joined 이벤트 디버깅
+      socket.on('joined', (data) => {
+        console.log('[Preload Socket] 🚪 채널 join 성공:', data);
       });
 
       socket.on('connect_error', (error) => {
@@ -187,8 +214,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
     socket.on(event, (...args) => callback(...args));
   },
   emitSocketEvent: (event, payload) => {
-    if (!socket) return;
+    console.log('[Preload Socket] 📤 emit 이벤트:', event, payload);
+    if (!socket) {
+      console.error('[Preload Socket] ❌ socket이 null입니다!');
+      return;
+    }
+    // Engine이 열려있으면 emit 허용 (namespace handshake 전이어도)
+    const engineConnected = socket.io?.engine?.readyState === 'open';
+    console.log('[Preload Socket] socket.connected:', socket.connected, 'engine:', engineConnected);
+    if (!socket.connected && !engineConnected) {
+      console.error('[Preload Socket] ❌ socket과 engine 모두 연결되지 않았습니다!');
+      return;
+    }
     socket.emit(event, payload);
+    console.log('[Preload Socket] ✅ emit 완료:', event);
   },
   disconnectSocket: () => {
     if (socket) {
@@ -196,7 +235,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       socket = null;
     }
   },
-  isSocketConnected: () => !!(socket && socket.connected),
+  isSocketConnected: () => {
+    const connected = socket?.connected;
+    const engineOpen = socket?.io?.engine?.readyState === 'open';
+    return !!(connected || engineOpen);
+  },
 
   // 플랫폼 정보
   platform: process.platform
