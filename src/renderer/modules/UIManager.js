@@ -5,11 +5,13 @@ export class UIManager {
     }
 
     init() {
+        console.log('[UIManager] init() 시작');
         this.loadTheme();
         this.updateThemeButton();
         this.setupResizers();
         this.bindGlobalUIEvents();
         this.bindAllModalCloseButtons();
+        console.log('[UIManager] init() 완료');
     }
 
     bindAllModalCloseButtons() {
@@ -53,15 +55,35 @@ export class UIManager {
         }
     }
 
-  applyTheme(theme) {
-        // data-theme 속성으로 명시적으로 전환 (light/dark 모두 지정)
+    applyTheme(theme) {
+        console.log('[UIManager] applyTheme 호출됨, theme:', theme);
+        // data-theme 속성으로 명시적으로 전환
         document.documentElement.setAttribute('data-theme', theme);
         document.documentElement.classList.toggle('theme-light', theme === 'light');
         document.documentElement.classList.toggle('theme-dark', theme === 'dark');
+
+        // CSS 변수 강제 적용 (스타일 파일 로드 문제 대비)
+        const style = document.documentElement.style;
+        if (theme === 'dark') {
+            style.setProperty('--bg-primary', '#0f0f13');
+            style.setProperty('--bg-secondary', '#16161c');
+            style.setProperty('--bg-tertiary', '#1c1c24');
+            style.setProperty('--text-primary', '#f0f0f5');
+            style.setProperty('--text-secondary', '#8888a0');
+            style.setProperty('--border', 'rgba(255, 255, 255, 0.08)');
+        } else {
+            style.setProperty('--bg-primary', '#ffffff');
+            style.setProperty('--bg-secondary', '#f5f5f7');
+            style.setProperty('--bg-tertiary', '#e8e8ed');
+            style.setProperty('--text-primary', '#1a1a1a');
+            style.setProperty('--text-secondary', '#666680');
+            style.setProperty('--border', 'rgba(0, 0, 0, 0.08)');
+        }
+
         this.currentTheme = theme;
         localStorage.setItem('theme', theme);
         this.updateThemeButton();
-  }
+    }
 
     toggleTheme() {
         const newTheme = this.currentTheme === 'dark' ? 'light' : 'dark';
@@ -133,20 +155,26 @@ export class UIManager {
     }
 
     bindGlobalUIEvents() {
+        console.log('[UIManager] bindGlobalUIEvents 시작');
         // 타이틀바 버튼
         const btnMinimize = document.getElementById('btn-minimize');
         const btnMaximize = document.getElementById('btn-maximize');
         const btnClose = document.getElementById('btn-close');
 
         if (window.electronAPI) {
-            btnMinimize?.addEventListener('click', () => window.electronAPI.minimizeWindow());
-            btnMaximize?.addEventListener('click', () => window.electronAPI.maximizeWindow());
-            btnClose?.addEventListener('click', () => window.electronAPI.closeWindow());
+            if (btnMinimize) btnMinimize.onclick = () => window.electronAPI.minimizeWindow();
+            if (btnMaximize) btnMaximize.onclick = () => window.electronAPI.maximizeWindow();
+            if (btnClose) btnClose.onclick = () => window.electronAPI.closeWindow();
         }
 
         const themeBtn = document.getElementById('theme-toggle-btn');
+        console.log('[UIManager] theme-toggle-btn 찾음:', !!themeBtn, themeBtn);
         if (themeBtn) {
-            themeBtn.addEventListener('click', () => this.toggleTheme());
+            // 중복 방지를 위해 onclick 사용
+            themeBtn.onclick = () => {
+                console.log('[UIManager] 테마 버튼 클릭됨!');
+                this.toggleTheme();
+            };
         }
 
         // 채팅 헤더 버튼들
@@ -154,19 +182,29 @@ export class UIManager {
 
         // 네비게이션 버튼들
         this.bindNavigationButtons();
+        console.log('[UIManager] bindGlobalUIEvents 완료');
     }
 
     bindChatHeaderButtons() {
+        console.log('[UIManager] bindChatHeaderButtons 시작');
         // 참여자 보기
         const btnToggleMembers = document.getElementById('btn-toggle-members');
-        btnToggleMembers?.addEventListener('click', () => {
-            this.toggleMembersList();
-        });
+        console.log('[UIManager] btn-toggle-members 찾음:', !!btnToggleMembers, btnToggleMembers);
+
+        if (btnToggleMembers) {
+            // 중복 방지를 위해 onclick 사용
+            btnToggleMembers.onclick = () => {
+                console.log('[UIManager] 참여자 버튼 클릭됨!');
+                this.toggleMembersList();
+            };
+        }
 
         const toggleMembersPanel = document.getElementById('toggle-members-panel');
-        toggleMembersPanel?.addEventListener('click', () => {
-            this.toggleMembersList();
-        });
+        if (toggleMembersPanel) {
+            toggleMembersPanel.onclick = () => {
+                this.toggleMembersList();
+            };
+        }
 
         // 화면 공유
         const btnScreenShare = document.getElementById('btn-screen-share');
@@ -557,10 +595,27 @@ export class UIManager {
 
     toggleMembersList() {
         const membersPanel = document.getElementById('members-panel');
+        console.log('[UIManager] toggleMembersList called, panel:', !!membersPanel);
         if (!membersPanel) return;
 
-        const isVisible = membersPanel.style.display !== 'none';
-        membersPanel.style.display = isVisible ? 'none' : 'flex';
+        // Toggle class for CSS-based control
+        membersPanel.classList.toggle('visible');
+
+        const isVisible = membersPanel.classList.contains('visible');
+
+        // Force inline styles to ensure visibility (bypassing CSS file issues)
+        if (isVisible) {
+            membersPanel.style.display = 'flex';
+            membersPanel.style.width = '240px';
+            membersPanel.style.zIndex = '100';
+            // Background color will be handled by CSS variables set in applyTheme
+            membersPanel.style.background = 'var(--bg-secondary)';
+            membersPanel.style.borderLeft = '1px solid var(--border)';
+        } else {
+            membersPanel.style.display = 'none';
+        }
+
+        console.log('[UIManager] members-panel visible:', isVisible, 'display:', membersPanel.style.display);
     }
 
     toggleThreadPanel() {

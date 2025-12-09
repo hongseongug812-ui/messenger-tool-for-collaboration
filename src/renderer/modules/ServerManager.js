@@ -559,8 +559,12 @@ export class ServerManager {
     }
 
     async renderMembers() {
+        console.log('[ServerManager] renderMembers 호출됨, 채널:', this.currentChannel?.id);
         const list = document.getElementById('members-list');
-        if (!list) return;
+        if (!list) {
+            console.error('[ServerManager] members-list 요소를 찾을 수 없음');
+            return;
+        }
 
         list.innerHTML = '';
 
@@ -569,6 +573,7 @@ export class ServerManager {
         await this.fetchMembers(this.currentChannel?.id);
 
         const members = this.channelMembers[this.currentChannel?.id] || [];
+        console.log('[ServerManager] 렌더링할 멤버 수:', members.length, members);
 
         // Simple render (omitting roles categorization for brevity, can be added)
         members.forEach(member => {
