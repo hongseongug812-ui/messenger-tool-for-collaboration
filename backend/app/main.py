@@ -16,7 +16,7 @@ import qrcode
 import aiosmtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File, Request, Header
+from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File, Request, Header, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import FileResponse, StreamingResponse

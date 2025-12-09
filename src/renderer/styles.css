@@ -6116,7 +6116,10 @@ body {
    Message Reactions
    ======================================== */
 .message-reactions-container {
-  margin-top: 4px;
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding-left: 12px;
 }
 
 .message-reactions {

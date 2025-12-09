@@ -198,29 +198,31 @@ export class ChatManager {
     }
 
     renderReactions(msg) {
-        if (!msg.reactions || msg.reactions.length === 0) {
-            return '<div class="message-reactions-container"></div>';
+        const currentUserId = this.app.auth.currentUser?.id;
+
+        // 리액션이 있을 경우 렌더링
+        let reactionsHTML = '';
+        if (msg.reactions && msg.reactions.length > 0) {
+            reactionsHTML = msg.reactions.map(reaction => {
+                const count = reaction.users.length;
+                const isActive = reaction.users.includes(currentUserId);
+                return `
+                    <div class="reaction ${isActive ? 'active' : ''}"
+                         data-emoji="${reaction.emoji}"
+                         onclick="window.app.chatManager.toggleReaction('${msg.id}', '${reaction.emoji}')">
+                        <span class="reaction-emoji">${reaction.emoji}</span>
+                        <span class="reaction-count">${count}</span>
+                    </div>
+                `;
+            }).join('');
         }
 
-        const currentUserId = this.app.auth.currentUser?.id;
-        const reactionsHTML = msg.reactions.map(reaction => {
-            const count = reaction.users.length;
-            const isActive = reaction.users.includes(currentUserId);
-            return `
-                <div class="reaction ${isActive ? 'active' : ''}"
-                     data-emoji="${reaction.emoji}"
-                     onclick="app.chatManager.toggleReaction('${msg.id}', '${reaction.emoji}')">
-                    <span class="reaction-emoji">${reaction.emoji}</span>
-                    <span class="reaction-count">${count}</span>
-                </div>
-            `;
-        }).join('');
-
+        // 항상 리액션 추가 버튼 표시
         return `
             <div class="message-reactions-container">
                 <div class="message-reactions">
                     ${reactionsHTML}
-                    <button class="reaction-add-btn" onclick="app.chatManager.showReactionPicker('${msg.id}', event)">
+                    <button class="reaction-add-btn" onclick="window.app.chatManager.showReactionPicker('${msg.id}', event)">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
                             <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5"/>
                             <path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
@@ -293,7 +295,7 @@ export class ChatManager {
         const picker = document.createElement('div');
         picker.className = 'reaction-picker';
         picker.innerHTML = emojis.map(emoji => `
-            <button class="reaction-picker-emoji" onclick="app.chatManager.selectReaction('${messageId}', '${emoji}'); this.parentElement.remove();">
+            <button class="reaction-picker-emoji" onclick="window.app.chatManager.selectReaction('${messageId}', '${emoji}'); this.parentElement.remove();">
                 ${emoji}
             </button>
         `).join('');
@@ -334,7 +336,7 @@ export class ChatManager {
     renderAttachments(files) {
         if (!files || files.length === 0) return '';
         return `<div class="message-attachments">
-      ${files.map(f => `<div class="attachment-item" onclick="app.chatManager.openFilePreview('${f.url}', '${f.name}')">${f.name}</div>`).join('')}
+      ${files.map(f => `<div class="attachment-item" onclick="window.app.chatManager.openFilePreview('${f.url}', '${f.name}')">${f.name}</div>`).join('')}
     </div>`;
     }
 
@@ -344,7 +346,7 @@ export class ChatManager {
         if (replyCount === 0) {
             return `
                 <div class="message-thread-actions">
-                    <button class="thread-reply-btn" onclick="app.chatManager.openThread('${msg.id}')">
+                    <button class="thread-reply-btn" onclick="window.app.chatManager.openThread('${msg.id}')">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
                             <path d="M7 8h10M7 12h7M7 16h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
                             <path d="M3 12h0M21 12h0" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
@@ -356,7 +358,7 @@ export class ChatManager {
         } else {
             return `
                 <div class="message-thread-actions">
-                    <button class="thread-reply-btn with-count" onclick="app.chatManager.openThread('${msg.id}')">
+                    <button class="thread-reply-btn with-count" onclick="window.app.chatManager.openThread('${msg.id}')">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
                             <path d="M7 8h10M7 12h7M7 16h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
                             <path d="M3 12h0M21 12h0" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
@@ -375,7 +377,10 @@ export class ChatManager {
             ...msg,
             sender: typeof sender === 'string' ? { name: sender, avatar: sender[0] } : sender,
             sent: isMine,
-            time: new Date(msg.timestamp).toLocaleTimeString()
+            time: new Date(msg.timestamp).toLocaleTimeString(),
+            reactions: msg.reactions || [],
+            reply_count: msg.reply_count || msg.replyCount || 0,
+            replyCount: msg.reply_count || msg.replyCount || 0
         };
     }
 
@@ -1255,7 +1260,7 @@ export class ChatManager {
         preview.innerHTML = this.attachedFiles.map((file, index) => `
             <div class="attached-file-item">
                 <span class="attached-file-name">${file.name}</span>
-                <button class="attached-file-remove" onclick="app.chatManager.removeAttachedFile(${index})">
+                <button class="attached-file-remove" onclick="window.app.chatManager.removeAttachedFile(${index})">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
                         <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
                     </svg>
