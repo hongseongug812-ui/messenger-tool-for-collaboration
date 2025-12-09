@@ -1,0 +1,443 @@
+[
+  {
+    "id": "TC001",
+    "title": "User Registration with Valid Data",
+    "description": "Verify that a new user can successfully register with valid username, password, email, and name, and that a token is provided.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Send POST request to /auth/signup with valid username, password, email, and name"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify response status is 200 or 201 indicating successful registration"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify response contains authentication token"
+      }
+    ]
+  },
+  {
+    "id": "TC002",
+    "title": "User Registration with Missing Required Fields",
+    "description": "Verify that user registration fails when required fields are missing or empty in the signup request.",
+    "category": "error handling",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Send POST request to /auth/signup with missing username"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify response status code is 400 or appropriate client error"
+      },
+      {
+        "type": "action",
+        "description": "Send POST request to /auth/signup with empty password"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify response returns validation error message"
+      }
+    ]
+  },
+  {
+    "id": "TC003",
+    "title": "User Login with Correct Credentials",
+    "description": "Verify a user can log in successfully with correct username/email and password, receiving a valid session token.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Send POST request to /auth/login with valid username/email and password"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify response status is 200 and contains a valid authentication token"
+      }
+    ]
+  },
+  {
+    "id": "TC004",
+    "title": "User Login with Incorrect Credentials",
+    "description": "Verify login fails and returns error messages when incorrect username/email or password is used.",
+    "category": "error handling",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Send POST request to /auth/login with invalid password"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify response status is 401 or 403 with error message"
+      }
+    ]
+  },
+  {
+    "id": "TC005",
+    "title": "Create Server with Valid Data",
+    "description": "Verify users can create a new server with required valid data and server is correctly stored.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Send authenticated POST request to /servers/ with valid server details"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify response status is 201 and server data is returned"
+      },
+      {
+        "type": "action",
+        "description": "Send GET request to /servers/ to confirm the newly created server is present"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the created server exists in the list"
+      }
+    ]
+  },
+  {
+    "id": "TC006",
+    "title": "Fail to Create Server with Invalid Data",
+    "description": "Verify server creation is rejected when providing invalid or incomplete data.",
+    "category": "error handling",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Send POST request to /servers/ with missing mandatory fields"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify response status is 400 and appropriate validation errors are returned"
+      }
+    ]
+  },
+  {
+    "id": "TC007",
+    "title": "Update Server Member Roles",
+    "description": "Verify that server member roles can be updated successfully through API, and roles persist correctly.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Send authenticated request to update member roles via server management API"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify response status is success and roles updated accordingly"
+      }
+    ]
+  },
+  {
+    "id": "TC008",
+    "title": "Create and Switch Channels within a Server",
+    "description": "Verify channel creation inside a server and ability to switch between channels properly.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Create a channel inside an existing server"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify channel creation response is successful with correct data"
+      },
+      {
+        "type": "action",
+        "description": "Select the newly created channel"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the channel is selected and UI updates appropriately"
+      }
+    ]
+  },
+  {
+    "id": "TC009",
+    "title": "Send and Receive Real-Time Messages",
+    "description": "Verify users can send and receive messages in real-time via Socket.IO, and that messages appear instantly in the chat interface.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Establish socket connection to chat server"
+      },
+      {
+        "type": "action",
+        "description": "Send a chat message through the socket to the channel"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the message is received by all channel participants immediately"
+      }
+    ]
+  },
+  {
+    "id": "TC010",
+    "title": "Handle Socket Disconnect and Reconnection Automatically",
+    "description": "Verify that the client automatically reconnects on Socket.IO disconnection and message loss is prevented.",
+    "category": "error handling",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Simulate socket disconnection"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify client attempts reconnection automatically"
+      },
+      {
+        "type": "action",
+        "description": "Send messages during disconnected state and after reconnection"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify no messages are lost and chat history is updated correctly"
+      }
+    ]
+  },
+  {
+    "id": "TC011",
+    "title": "Retrieve and Display Message History",
+    "description": "Verify that chat history is loaded correctly when user joins a channel, showing past messages in chronological order.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Join a channel with existing message history"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify message history is displayed with correct timestamps and order"
+      }
+    ]
+  },
+  {
+    "id": "TC012",
+    "title": "Initiate 1:1 Voice Call Successfully",
+    "description": "Verify that a user can initiate and establish a 1:1 voice call with another participant over WebRTC with signaling.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Initiate voice call to another user"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify call connection is established with clear audio"
+      }
+    ]
+  },
+  {
+    "id": "TC013",
+    "title": "Join and Maintain Group Video Call",
+    "description": "Verify that multiple users can join the same video call session and maintain stable audio/video streams.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Multiple users join a group video call"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify each participant's audio and video streams are visible and clear"
+      }
+    ]
+  },
+  {
+    "id": "TC014",
+    "title": "Handle Media Permission Denied during Call",
+    "description": "Verify appropriate error handling and user notification when media device permissions are denied during call initiation.",
+    "category": "error handling",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Attempt to start a call with denied camera/microphone permissions"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify user receives informative error message and call is not initiated"
+      }
+    ]
+  },
+  {
+    "id": "TC015",
+    "title": "Start and Stream Screen Sharing During a Call",
+    "description": "Verify the user can start screen sharing during an ongoing call and that all participants can see the shared screen clearly and without interruption.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "During a call, initiate screen sharing using getDisplayMedia API"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify screen content is streamed to all call participants and is stable"
+      }
+    ]
+  },
+  {
+    "id": "TC016",
+    "title": "Toggle Dark and Light Theme Modes",
+    "description": "Verify that the user can switch between dark mode and light mode themes and that the changes apply immediately and persist after app restart.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Switch UI theme from default to dark mode"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify UI updates to dark mode immediately"
+      },
+      {
+        "type": "action",
+        "description": "Restart the app"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify theme selection persists and dark mode is retained"
+      }
+    ]
+  },
+  {
+    "id": "TC017",
+    "title": "Enable and Disable Do Not Disturb Mode",
+    "description": "Verify that Do Not Disturb mode can be toggled and that notifications behave accordingly when enabled.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Enable Do Not Disturb mode in UI settings"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify notifications are suppressed while mode is enabled"
+      },
+      {
+        "type": "action",
+        "description": "Disable Do Not Disturb mode"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify notifications resume normally"
+      }
+    ]
+  },
+  {
+    "id": "TC018",
+    "title": "Edit User Profile Successfully",
+    "description": "Verify that users can edit their profile information using profile editing modal and changes persist.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Open profile editing modal and update profile fields (e.g., name, email)"
+      },
+      {
+        "type": "action",
+        "description": "Save changes"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify changes are reflected in the UI and persisted across sessions"
+      }
+    ]
+  },
+  {
+    "id": "TC019",
+    "title": "Application Window Controls Functionality",
+    "description": "Verify minimize, maximize, and close custom window controls function correctly on supported OS platforms.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Click minimize button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify application window minimizes properly"
+      },
+      {
+        "type": "action",
+        "description": "Click maximize button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify application window maximizes and restores properly"
+      },
+      {
+        "type": "action",
+        "description": "Click close button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify application closes or prompts as designed"
+      }
+    ]
+  },
+  {
+    "id": "TC020",
+    "title": "Session Persistence and Automatic Login with Valid Token",
+    "description": "Verify that when the user has a valid stored token, the app allows automatic login and restores the user session.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Login and store authentication token"
+      },
+      {
+        "type": "action",
+        "description": "Restart application"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify user is automatically logged in using stored token and session validated"
+      }
+    ]
+  },
+  {
+    "id": "TC021",
+    "title": "Handle Invalid or Expired Token during Session Validation",
+    "description": "Verify the app correctly handles invalid or expired tokens by requiring the user to login again.",
+    "category": "error handling",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Store an expired or invalid token"
+      },
+      {
+        "type": "action",
+        "description": "Restart application"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify user is redirected to login screen and prompted to authenticate"
+      }
+    ]
+  }
+]

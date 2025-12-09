@@ -1,0 +1,60 @@
+{
+    "tech_stack": [
+        "Python",
+        "FastAPI",
+        "MongoDB",
+        "Socket.IO",
+        "Google Gemini API"
+    ],
+    "features": [
+        {
+            "name": "Authentication & Security",
+            "description": "User signup, login, JWT token management, password reset via email, and Two-Factor Authentication (2FA) support.",
+            "files": [
+                "backend/app/main.py"
+            ]
+        },
+        {
+            "name": "Server & Channel Management",
+            "description": "Creation and management of Servers, Categories, and Channels (Text, DM, Group DM). Includes role-based permissions and member management.",
+            "files": [
+                "backend/app/main.py"
+            ]
+        },
+        {
+            "name": "Real-time Messaging",
+            "description": "Socket.IO based real-time messaging system supporting text, file attachments, message editing/deletion, and threading.",
+            "files": [
+                "backend/app/main.py"
+            ]
+        },
+        {
+            "name": "Notification System",
+            "description": "Real-time notifications for mentions, keywords, and system alerts. Includes email notifications for new device logins.",
+            "files": [
+                "backend/app/main.py"
+            ]
+        },
+        {
+            "name": "Search & Retrieval",
+            "description": "Advanced search capabilities for messages and files with various filters (date, user, channel).",
+            "files": [
+                "backend/app/main.py"
+            ]
+        },
+        {
+            "name": "User Profile & Settings",
+            "description": "User profile management (avatar, status), notification settings, and bookmarking messages.",
+            "files": [
+                "backend/app/main.py"
+            ]
+        },
+        {
+            "name": "AI Integration",
+            "description": "Integration with Google Gemini API for AI-assisted responses or features.",
+            "files": [
+                "backend/app/main.py"
+            ]
+        }
+    ]
+}

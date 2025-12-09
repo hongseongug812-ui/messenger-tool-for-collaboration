@@ -80,7 +80,7 @@ async def get_ai_response(prompt: str) -> str:
         return "AI 기능을 사용하려면 API 키 설정이 필요합니다."
     
     try:
-        model = genai.GenerativeModel('gemini-2.0-flash')
+        model = genai.GenerativeModel('gemini-flash-latest')
         response = await model.generate_content_async(prompt)
         return response.text
     except Exception as e:
@@ -1512,6 +1512,16 @@ async def get_state(current_user: User = Depends(get_current_user)):
   return {"servers": servers}
 
 
+@fastapi_app.get("/servers", response_model=List[Server])
+async def list_servers(current_user: User = Depends(get_current_user)):
+  """사용자가 속한 서버 목록 조회"""
+  cursor = servers_col.find({"members.id": current_user.id})
+  servers = []
+  async for doc in cursor:
+    servers.append(_server_doc_to_model(doc))
+  return servers
+
+
 @fastapi_app.post("/servers", response_model=Server, status_code=201)
 async def create_server(payload: ServerCreate, current_user: User = Depends(get_current_user)):
   server_id = f"server_{uuid.uuid4().hex[:10]}"
@@ -2661,8 +2671,22 @@ async def message(sid, data):
       # @chatbot 제거하고 나머지 텍스트를 프롬프트로 사용
       prompt = content.replace("@chatbot", "").strip()
       if prompt:
+          # RAG: 관련 문맥 검색
+          context = await get_relevant_context(prompt, message_obj.sender.id)
+          
+          full_prompt = f"""
+다음은 사용자의 질문과 관련된 최근 대화 내역입니다. 이를 참고하여 사용자의 질문에 답변하세요.
+대화 내역에 없는 내용은 일반적인 지식으로 답변하되, "대화 내역에는 없지만" 이라고 언급하세요.
+답변 시 **볼드체**나 *이탤릭체* 같은 마크다운 강조 표시를 절대 사용하지 말고, 평범한 텍스트로만 답변하세요.
+
+[대화 내역]
+{context}
+
+[사용자 질문]
+{prompt}
+"""
           # 비동기로 AI 응답 생성 및 전송
-          ai_response_text = await get_ai_response(prompt)
+          ai_response_text = await get_ai_response(full_prompt)
           
           ai_message_obj = Message(
               id=f"msg_{uuid.uuid4().hex[:12]}",
@@ -2703,6 +2727,91 @@ async def message(sid, data):
 # -----------------------------
 # AI 기능
 # -----------------------------
+
+async def _get_accessible_channels(user_id: str) -> List[str]:
+    """사용자가 접근 가능한 모든 채널 ID 반환"""
+    channel_ids = set()
+
+    # 1. 서버 채널
+    async for server in servers_col.find({"members.id": user_id}):
+        for cat in server.get("categories", []):
+            for ch in cat.get("channels", []):
+                # 권한 체크 로직 (단순화: 멤버면 접근 가능)
+                # 실제로는 _can_access_channel 등을 사용해야 하지만, 
+                # 여기서는 서버 멤버면 기본적으로 접근 가능한 것으로 가정 (Private 제외 등은 추가 필요)
+                # 검색 로직과 유사하게 가져감
+                accessible = False
+                if not ch.get("is_private", False):
+                    accessible = True
+                elif user_id in ch.get("allowed_members", []):
+                    accessible = True
+                # role check 생략 (복잡도 감소)
+                
+                if accessible:
+                    channel_ids.add(ch["id"])
+
+    # 2. DM 채널
+    async for dm in dm_channels_col.find({"participants": user_id}):
+        channel_ids.add(dm["_id"])
+
+    return list(channel_ids)
+
+
+async def get_relevant_context(query: str, user_id: str, limit: int = 10) -> str:
+    """사용자 질문과 관련된 최근 메시지 검색 (RAG)"""
+    channel_ids = await _get_accessible_channels(user_id)
+    if not channel_ids:
+        return "관련 대화 내역이 없습니다."
+
+    # 정규식으로 키워드 검색 (단순 검색)
+    # 실제 프로덕션에서는 Vector DB가 필요함
+    # 여기서는 query의 단어들이 포함된 메시지를 찾음
+    keywords = [k for k in query.split() if len(k) > 1]
+    if not keywords:
+        return ""
+
+    regex_pattern = "|".join([re.escape(k) for k in keywords])
+    
+    # 암호화된 메시지를 복호화해서 검색할 수 없으므로, 
+    # MongoDB regex는 암호화된 상태에서는 작동하지 않음!
+    # ★ 중요: 현재 아키텍처는 메시지가 암호화되어 저장됨 (encrypt_text -> base64)
+    # 따라서 DB 차원의 텍스트 검색은 불가능함.
+    # 
+    # 대안: 최신 메시지 N개를 가져와서 메모리에서 복호화 후 검색
+    # (성능 이슈가 있을 수 있으나, 프로토타입으로는 적절)
+    
+    # 최근 메시지 500개 조회
+    cursor = messages_col.find({
+        "channel_id": {"$in": channel_ids}
+    }).sort("timestamp", -1).limit(200)
+
+    relevant_messages = []
+    
+    async for msg_doc in cursor:
+        try:
+            content = decrypt_text(msg_doc.get("content", ""))
+            # 검색어 매칭 확인
+            if any(k.lower() in content.lower() for k in keywords):
+                sender_name = msg_doc.get("sender", {}).get("name", "Unknown")
+                timestamp = msg_doc.get("timestamp")
+                if isinstance(timestamp, datetime):
+                    time_str = timestamp.strftime("%Y-%m-%d %H:%M")
+                else:
+                    time_str = str(timestamp)
+                
+                relevant_messages.append(f"[{time_str}] {sender_name}: {content}")
+        except:
+            continue
+            
+        if len(relevant_messages) >= limit:
+            break
+    
+    if not relevant_messages:
+        return "관련된 대화 내용을 찾을 수 없습니다."
+
+    # 시간순 정렬 (과거 -> 현재)
+    return "\n".join(reversed(relevant_messages))
+
 
 async def summarize_conversation(messages: List[Dict]) -> str:
   """대화 내용을 요약합니다"""

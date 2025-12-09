@@ -1,0 +1,111 @@
+{
+  "meta": {
+    "project": "Unified Chat & Collaboration Platform",
+    "date": "2025-12-05",
+    "prepared_by": "Software Development Manager"
+  },
+  "product_overview": "A comprehensive real-time chat and collaboration platform integrating secure user authentication, server and channel management, multimedia communication, and AI-powered assistance to enhance user interaction and productivity.",
+  "core_goals": [
+    "Provide robust and secure user authentication including 2FA.",
+    "Enable flexible creation and management of servers, categories, and various channel types with role-based access controls.",
+    "Support real-time messaging with features such as file attachments, message editing, deletion, and threading.",
+    "Deliver seamless multimedia communication including voice and video calls, and screen sharing capabilities.",
+    "Incorporate AI features via Google Gemini API for enhanced user experience and intelligent responses.",
+    "Offer advanced search and notification systems to keep users informed and enable easy access to communication history.",
+    "Ensure a user-friendly interface with customizable settings including themes and profile management."
+  ],
+  "key_features": [
+    "User Signup, login, password reset, and JWT-based session management with Two-Factor Authentication support.",
+    "Creation and administration of servers, channels (Text, DM, Group DM), category grouping, member roles, and permission controls.",
+    "Socket.IO powered real-time messaging supporting text, attachments, threaded conversations, and message modifications.",
+    "Real-time and email notifications for mentions, keywords, and security events like new device logins.",
+    "Voice and video calling with group support through WebRTC, including camera and microphone controls, UI overlay for call participants.",
+    "Screen sharing features utilizing getDisplayMedia API with start/stop controls and reliable stream distribution.",
+    "Profile customization including avatars, status updates, and notification settings with message bookmarking capabilities.",
+    "Advanced message and file search with filters by date, user, and channel to quickly retrieve information.",
+    "Dark and light mode theming, Do Not Disturb toggle, and window control features for an intuitive and flexible UI experience.",
+    "AI-powered assistance integrated using Google Gemini API to enable intelligent chat responses and productivity tools."
+  ],
+  "user_flow_summary": [
+    "Users can register, authenticate with 2FA, and manage sessions securely with JWT tokens.",
+    "Administrators create and organize servers, categories, and channels, managing member roles and permissions.",
+    "Users send and receive real-time messages and files, participate in threaded conversations, and modify messages as needed.",
+    "Users receive instant notifications on relevant events, and can configure notification preferences including email alerts.",
+    "Participants initiate and conduct voice/video calls and screen sharing sessions with seamless UI controls and permissions.",
+    "Users customize their profiles, adjust app settings including themes and notification preferences.",
+    "Users search message history and files using advanced filters to efficiently locate content.",
+    "AI features assist users by providing intelligent responses and enhancing communication workflows."
+  ],
+  "validation_criteria": [
+    "Successful user registration, login, password reset, and Two-Factor Authentication workflows verified through testing.",
+    "Accurate creation, modification, and permission enforcement of servers, categories, and channels.",
+    "Real-time messaging performance tested for reliability, including message delivery, editing, deletion, and threading.",
+    "Clear and timely notifications delivered for mentions, keywords, and security alerts, with email notifications validated.",
+    "Voice and video communication sessions established with proper media access, participant handling, and UI feedback.",
+    "Screen sharing functions operate smoothly across users with correct stream visibility and control.",
+    "User profile updates, settings changes, and bookmarking reflected correctly in the application.",
+    "Search functionality returns accurate results matching filters under various conditions.",
+    "UI/UX responsiveness and theme toggles function correctly across device types and window states.",
+    "AI integration successfully provides relevant assistance without performance degradation or errors."
+  ],
+  "code_summary": {
+    "tech_stack": [
+      "Python",
+      "FastAPI",
+      "MongoDB",
+      "Socket.IO",
+      "Google Gemini API"
+    ],
+    "features": [
+      {
+        "name": "Authentication & Security",
+        "description": "User signup, login, JWT token management, password reset via email, and Two-Factor Authentication (2FA) support.",
+        "files": [
+          "backend/app/main.py"
+        ]
+      },
+      {
+        "name": "Server & Channel Management",
+        "description": "Creation and management of Servers, Categories, and Channels (Text, DM, Group DM). Includes role-based permissions and member management.",
+        "files": [
+          "backend/app/main.py"
+        ]
+      },
+      {
+        "name": "Real-time Messaging",
+        "description": "Socket.IO based real-time messaging system supporting text, file attachments, message editing/deletion, and threading.",
+        "files": [
+          "backend/app/main.py"
+        ]
+      },
+      {
+        "name": "Notification System",
+        "description": "Real-time notifications for mentions, keywords, and system alerts. Includes email notifications for new device logins.",
+        "files": [
+          "backend/app/main.py"
+        ]
+      },
+      {
+        "name": "Search & Retrieval",
+        "description": "Advanced search capabilities for messages and files with various filters (date, user, channel).",
+        "files": [
+          "backend/app/main.py"
+        ]
+      },
+      {
+        "name": "User Profile & Settings",
+        "description": "User profile management (avatar, status), notification settings, and bookmarking messages.",
+        "files": [
+          "backend/app/main.py"
+        ]
+      },
+      {
+        "name": "AI Integration",
+        "description": "Integration with Google Gemini API for AI-assisted responses or features.",
+        "files": [
+          "backend/app/main.py"
+        ]
+      }
+    ]
+  }
+}

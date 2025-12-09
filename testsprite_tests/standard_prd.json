@@ -1,0 +1,113 @@
+{
+  "meta": {
+    "project": "Real-Time Collaboration and Communication App",
+    "date": "2025-12-05",
+    "prepared_by": "Software Development Manager"
+  },
+  "product_overview": "This product is a real-time collaboration and communication application comprising user authentication, server and channel management, real-time messaging, and advanced multimedia features including voice, video calls, and screen sharing. The application also offers a customizable UI with theme settings and window controls for enhanced user experience.",
+  "core_goals": [
+    "Enable secure user authentication with signup and login capabilities.",
+    "Provide flexible and intuitive server and channel management for users.",
+    "Support real-time messaging with reliable socket connections and message history.",
+    "Facilitate high-quality voice and video calls supporting 1:1 and group communication.",
+    "Allow seamless screen sharing during calls.",
+    "Deliver a user-friendly interface with customizable themes and settings.",
+    "Ensure reliable app window controls and session management."
+  ],
+  "key_features": [
+    "User registration and login with token management and session validation.",
+    "CRUD operations for servers and channels, including member role updates.",
+    "Real-time messaging via Socket.IO with message send/receive and chat history retrieval.",
+    "Voice and video calls using WebRTC with signaling and multi-participant support.",
+    "Screen sharing functionality using getDisplayMedia API.",
+    "UI features including dark/light mode toggle, Do Not Disturb mode, and profile editing modal.",
+    "Custom window controls for minimize, maximize, and close actions."
+  ],
+  "user_flow_summary": [
+    "User signs up or logs in, triggering token storage and session validation for automatic login.",
+    "User creates or selects a server, then creates or switches to a channel within that server.",
+    "User sends and receives messages in real-time, with reconnection and chat history loading handled gracefully.",
+    "User initiates or joins a voice/video call, manages media permissions, and shares their screen as needed.",
+    "User customizes app UI settings such as theme and Do Not Disturb mode, edits profile information.",
+    "User controls the application window using custom buttons for minimize, maximize, and close."
+  ],
+  "validation_criteria": [
+    "All authentication endpoints securely register and login users with proper validation and error handling.",
+    "Servers and channels can be created, retrieved, updated, and deleted correctly via API.",
+    "Real-time messaging operates without message loss and reconnects automatically on connection drops.",
+    "Voice and video calls establish successfully with clear audio/video and multiple participants supported.",
+    "Screen sharing streams are visible and stable for all call participants.",
+    "UI settings change reflect immediately and persist user preferences.",
+    "Application window controls function correctly and consistently across supported platforms."
+  ],
+  "code_summary": {
+    "tech_stack": [
+      "Python",
+      "FastAPI",
+      "MongoDB",
+      "Socket.IO"
+    ],
+    "features": [
+      {
+        "name": "Authentication",
+        "description": "User management APIs",
+        "files": [
+          "backend/app/main.py"
+        ],
+        "api_doc": {
+          "openapi": "3.0.0",
+          "paths": {
+            "/auth/signup": {
+              "post": {
+                "summary": "Register New User",
+                "requestBody": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "type": "object",
+                        "properties": {
+                          "username": {
+                            "type": "string"
+                          },
+                          "password": {
+                            "type": "string"
+                          },
+                          "email": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "/auth/login": {
+              "post": {
+                "summary": "Login"
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "Server Management",
+        "description": "Server CRUD",
+        "files": [
+          "backend/app/main.py"
+        ],
+        "api_doc": {
+          "paths": {
+            "/servers/": {
+              "get": {},
+              "post": {}
+            }
+          }
+        }
+      }
+    ]
+  }
+}

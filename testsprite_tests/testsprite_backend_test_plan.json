@@ -1,0 +1,32 @@
+[
+  {
+    "id": "TC001",
+    "title": "user_registration_with_valid_data",
+    "description": "Test the /auth/signup endpoint to ensure a new user can register successfully with valid username, password, email, and name."
+  },
+  {
+    "id": "TC002",
+    "title": "user_registration_with_missing_fields",
+    "description": "Test the /auth/signup endpoint to verify proper error handling when required fields like username or password are missing."
+  },
+  {
+    "id": "TC003",
+    "title": "user_login_with_correct_credentials",
+    "description": "Test the /auth/login endpoint to confirm that a user can log in successfully with valid username and password."
+  },
+  {
+    "id": "TC004",
+    "title": "user_login_with_incorrect_credentials",
+    "description": "Test the /auth/login endpoint to verify that login fails with appropriate error message when incorrect username or password is provided."
+  },
+  {
+    "id": "TC005",
+    "title": "get_servers_list",
+    "description": "Test the GET /servers/ endpoint to ensure it returns the list of servers accessible to the authenticated user."
+  },
+  {
+    "id": "TC006",
+    "title": "create_server_with_valid_data",
+    "description": "Test the POST /servers/ endpoint to verify that a new server can be created successfully with valid server details."
+  }
+]

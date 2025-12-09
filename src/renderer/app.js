@@ -144,10 +144,59 @@ class WorkMessenger {
   }
 
   bindGlobalEvents() {
-    // 키보드 단축키 등 전역 이벤트 처리
+    if (this.globalEventsBound) return;
+    this.globalEventsBound = true;
+
+    // Window Controls
+    const btnMinimize = document.getElementById('btn-minimize');
+    const btnMaximize = document.getElementById('btn-maximize');
+    const btnClose = document.getElementById('btn-close');
+
+    if (btnMinimize) btnMinimize.addEventListener('click', () => window.electronAPI.minimizeWindow());
+    if (btnMaximize) btnMaximize.addEventListener('click', () => window.electronAPI.maximizeWindow());
+    if (btnClose) btnClose.addEventListener('click', () => window.electronAPI.closeWindow());
+
+    // Theme Toggle
+    const themeBtn = document.getElementById('theme-toggle-btn');
+    const html = document.documentElement;
+
+    // Load saved theme
+    const savedTheme = localStorage.getItem('theme') || 'dark';
+    html.setAttribute('data-theme', savedTheme);
+    this.updateThemeIcon(savedTheme);
+
+    if (themeBtn) {
+      themeBtn.addEventListener('click', () => {
+        const currentTheme = html.getAttribute('data-theme');
+        const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+        html.setAttribute('data-theme', newTheme);
+        localStorage.setItem('theme', newTheme);
+        this.updateThemeIcon(newTheme);
+      });
+    }
+
+    // Keyboard Shortcuts
     document.addEventListener('keydown', (e) => {
-      // 예: ESC로 모달 닫기 (UIManager에서 처리되어 있으면 생략 가능)
+      // ESC to close modals
+      if (e.key === 'Escape') {
+        const modals = document.querySelectorAll('.modal-overlay');
+        modals.forEach(modal => modal.style.display = 'none');
+      }
+
+      // Ctrl+T or Cmd+T for Theme Toggle
+      if ((e.ctrlKey || e.metaKey) && e.key === 't') {
+        e.preventDefault(); // Prevent new tab/window
+        const themeBtn = document.getElementById('theme-toggle-btn');
+        if (themeBtn) themeBtn.click();
+      }
     });
+  }
+
+  updateThemeIcon(theme) {
+    const themeBtn = document.getElementById('theme-toggle-btn');
+    if (themeBtn) {
+      themeBtn.textContent = theme === 'light' ? '☀️' : '🌙';
+    }
   }
 }
 

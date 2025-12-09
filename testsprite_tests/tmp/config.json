@@ -1,0 +1,22 @@
+{
+  "status": "commited",
+  "type": "backend",
+  "scope": "codebase",
+  "localEndpoint": "http://localhost:8000",
+  "backendAuthType": "basic token",
+  "backendUsername": "weird14446",
+  "backendPassword": "dlstn1151@",
+  "executionArgs": {
+    "projectName": "Messenger-tool-for-collaboration",
+    "projectPath": "/Users/iinsu/Documents/GitHub/Messenger-tool-for-collaboration",
+    "testIds": [
+      "TC016",
+      "TC019"
+    ],
+    "additionalInstruction": "Generate and run tests for UI features: Theme Toggle (TC016) and Window Controls (TC019). Ensure to check for data-theme attribute and localStorage.",
+    "envs": {
+      "API_KEY": "sk-user-fimtuZP-_OXLXZYXsE7dNJrDIvuHx7AU4b8ogb-p6KeTeszLkbGq8IIvYHtD0c73oq3mzPJupesmWluj9NenF_YH9lICgmh1L6xi8-iHkXTRv3ZSvxwlu0ckWIsomwu6NoQ"
+    }
+  },
+  "proxy": "http://12df4900-557b-4392-882d-7d756f76ed06:pvxwHWq8X9RPEFQGQrX900nV96MFcmBZ@tun.testsprite.com:8080"
+}

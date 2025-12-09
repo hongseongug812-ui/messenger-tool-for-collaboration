@@ -5,6 +5,12 @@ export class WebRTCManager {
         this.peers = {}; // sid -> RTCPeerConnection
         this.isCallActive = false;
 
+        // Audio Context for Visualizer
+        this.audioContext = null;
+        this.analyser = null;
+        this.dataArray = null;
+        this.animationId = null;
+
         this.iceServers = {
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
@@ -30,11 +36,13 @@ export class WebRTCManager {
 
     async startCall() {
         if (this.isCallActive) return;
+        this.updateConnectionState("Connecting...");
         await this.initiateMedia(false);
     }
 
     async startScreenShare() {
         if (this.isCallActive) return;
+        this.updateConnectionState("Starting Screen Share...");
         await this.initiateMedia(true);
     }
 
@@ -60,23 +68,34 @@ export class WebRTCManager {
             this.isCallActive = true;
             this.showCallOverlay();
             this.addLocalVideo();
+            this.setupAudioVisualizer(this.localStream);
 
             // Join call room
             this.app.socketManager.emit('call_join', { currentChannelId: channelId });
+            this.updateConnectionState("Connected");
 
             // Handle stream stop (e.g. user clicks "Stop Sharing")
-            this.localStream.getVideoTracks()[0].onended = () => {
-                this.leaveCall();
-            };
+            if (this.localStream.getVideoTracks().length > 0) {
+                this.localStream.getVideoTracks()[0].onended = () => {
+                    this.leaveCall();
+                };
+            }
 
         } catch (err) {
             console.error('Error accessing media:', err);
+            this.updateConnectionState("Failed to access media");
             // alert('Media access failed or cancelled.');
         }
     }
 
     async handleUserJoined(data) {
-        // data.callerId (sid of new user)
+        // Only if we are not in a call, show incoming call modal
+        if (!this.isCallActive) {
+            this.showIncomingCallModal(data.callerId);
+            return;
+        }
+
+        // If already in call, just connect
         const targetSid = data.callerId;
         if (this.peers[targetSid]) return; // already connected
 
@@ -84,10 +103,45 @@ export class WebRTCManager {
         await this.createPeerConnection(targetSid, true);
     }
 
+    showIncomingCallModal(callerId) {
+        // Prevent multiple modals
+        if (document.getElementById('incoming-call-modal')) return;
+
+        const modal = document.createElement('div');
+        modal.id = 'incoming-call-modal';
+        modal.className = 'modal-overlay';
+        modal.innerHTML = `
+            <div class="modal-content call-modal">
+                <h3>Incoming Call</h3>
+                <p>User ${callerId.substr(0, 4)} is calling...</p>
+                <div class="call-actions">
+                    <button id="btn-accept-call" class="auth-btn primary">Accept</button>
+                    <button id="btn-reject-call" class="auth-btn secondary">Decline</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        document.getElementById('btn-accept-call').onclick = () => {
+            modal.remove();
+            this.startCall(); // Join the call
+        };
+
+        document.getElementById('btn-reject-call').onclick = () => {
+            modal.remove();
+        };
+    }
+
     async handleOffer(data) {
         // data: { sdp, callerId, channelId }
         const targetSid = data.callerId;
         console.log('Received offer from:', targetSid);
+
+        // If not in call (e.g. accepted via modal just now or re-negotiating)
+        if (!this.isCallActive) {
+            // Implicitly accept if we receive offer? No, usually handled by join.
+            // But if we are here, we probably joined.
+        }
 
         const pc = await this.createPeerConnection(targetSid, false);
         await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
@@ -183,6 +237,16 @@ export class WebRTCManager {
     leaveCall() {
         if (!this.isCallActive) return;
 
+        // Stop Audio Visualizer
+        if (this.animationId) {
+            cancelAnimationFrame(this.animationId);
+            this.animationId = null;
+        }
+        if (this.audioContext) {
+            this.audioContext.close();
+            this.audioContext = null;
+        }
+
         // Stop local stream
         if (this.localStream) {
             this.localStream.getTracks().forEach(track => track.stop());
@@ -191,6 +255,7 @@ export class WebRTCManager {
 
         // Close all peer connections
         Object.keys(this.peers).forEach(sid => this.closePeerConnection(sid));
+        this.peers = {};
 
         // Remove UI
         this.hideCallOverlay();
@@ -202,6 +267,7 @@ export class WebRTCManager {
         }
 
         this.isCallActive = false;
+        this.updateConnectionState("Disconnected");
     }
 
     // UI Methods
@@ -224,6 +290,11 @@ export class WebRTCManager {
         }
     }
 
+    updateConnectionState(state) {
+        const el = document.getElementById('call-status-text');
+        if (el) el.textContent = state;
+    }
+
     createCallOverlay() {
         const overlay = document.createElement('div');
         overlay.id = 'call-overlay';
@@ -233,14 +304,24 @@ export class WebRTCManager {
         overlay.innerHTML = `
             <div class="call-header">
                 <h3>Voice/Video Call</h3>
-                <button id="hangup-btn" class="danger-btn">Hang Up</button>
+                <span id="call-status-text" class="status-badge connecting">Connecting...</span>
             </div>
             <div id="video-grid" class="video-grid">
                 <!-- Videos will be injected here -->
             </div>
+            <div class="visualizer-container">
+                <canvas id="audio-visualizer" width="300" height="50"></canvas>
+            </div>
             <div class="call-controls">
-                <button id="mute-btn" class="control-btn">Mute</button>
-                <button id="video-btn" class="control-btn">Video Off</button>
+                <button id="mute-btn" class="control-btn" title="Toggle Mute">
+                    <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
+                </button>
+                <button id="video-btn" class="control-btn" title="Toggle Video">
+                    <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                </button>
+                <button id="hangup-btn" class="control-btn danger" title="Hang Up">
+                     <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 8l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M5 3a2 2 0 00-2 2v1c0 8.284 6.716 15 15 15h1a2 2 0 002-2v-3.28a1 1 0 00-.684-.948l-4.493-1.498a1 1 0 00-1.21.502l-1.13 2.257a11.042 11.042 0 01-5.516-5.517l2.257-1.128a1 1 0 00.502-1.21L9.228 3.683A1 1 0 008.279 3H5z" /></svg>
+                </button>
             </div>
         `;
 
@@ -248,20 +329,64 @@ export class WebRTCManager {
 
         // Bind events
         document.getElementById('hangup-btn').onclick = () => this.leaveCall();
-        document.getElementById('mute-btn').onclick = (e) => this.toggleAudio(e.target);
-        document.getElementById('video-btn').onclick = (e) => this.toggleVideo(e.target);
+        document.getElementById('mute-btn').onclick = (e) => this.toggleAudio(e.currentTarget);
+        document.getElementById('video-btn').onclick = (e) => this.toggleVideo(e.currentTarget);
+    }
+
+    setupAudioVisualizer(stream) {
+        if (!stream.getAudioTracks().length) return;
+
+        this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        this.analyser = this.audioContext.createAnalyser();
+        const source = this.audioContext.createMediaStreamSource(stream);
+        source.connect(this.analyser);
+
+        this.analyser.fftSize = 256;
+        const bufferLength = this.analyser.frequencyBinCount;
+        this.dataArray = new Uint8Array(bufferLength);
+
+        const canvas = document.getElementById('audio-visualizer');
+        if (!canvas) return;
+        const canvasCtx = canvas.getContext('2d');
+        const WIDTH = canvas.width;
+        const HEIGHT = canvas.height;
+
+        const draw = () => {
+            if (!this.isCallActive) return;
+            this.animationId = requestAnimationFrame(draw);
+
+            this.analyser.getByteFrequencyData(this.dataArray);
+
+            canvasCtx.fillStyle = '#0a0a0f';
+            canvasCtx.fillRect(0, 0, WIDTH, HEIGHT);
+
+            const barWidth = (WIDTH / bufferLength) * 2.5;
+            let barHeight;
+            let x = 0;
+
+            for (let i = 0; i < bufferLength; i++) {
+                barHeight = this.dataArray[i] / 2;
+
+                canvasCtx.fillStyle = `rgb(${barHeight + 100}, 50, 250)`;
+                canvasCtx.fillRect(x, HEIGHT - barHeight, barWidth, barHeight);
+
+                x += barWidth + 1;
+            }
+        };
+
+        draw();
     }
 
     addLocalVideo() {
         const video = document.createElement('video');
         video.srcObject = this.localStream;
         video.autoplay = true;
-        video.muted = true; // Mute local video to prevent echo
+        video.muted = true; // Mute local video
         video.id = 'local-video';
         video.className = 'video-item local';
 
         const container = document.createElement('div');
-        container.className = 'video-container';
+        container.className = 'video-container local';
         container.appendChild(video);
         container.innerHTML += '<div class="video-label">Me</div>';
 
@@ -281,12 +406,11 @@ export class WebRTCManager {
             video.className = 'video-item';
 
             container.appendChild(video);
-            // Ideally map sid to user name, but simpler for now
             container.innerHTML += `<div class="video-label">User ${sid.substr(0, 4)}</div>`;
 
-            // Re-attach video element after innerHTML overwrite (or just append label separately)
+            // Re-attach because innerHTML wiped it
             const v = container.querySelector('video');
-            v.srcObject = stream; // set again
+            v.srcObject = stream;
 
             document.getElementById('video-grid').appendChild(container);
         }
@@ -301,8 +425,7 @@ export class WebRTCManager {
         if (this.localStream) {
             const track = this.localStream.getAudioTracks()[0];
             track.enabled = !track.enabled;
-            btn.textContent = track.enabled ? 'Mute' : 'Unmute';
-            btn.classList.toggle('active', !track.enabled);
+            btn.classList.toggle('off', !track.enabled);
         }
     }
 
@@ -310,8 +433,7 @@ export class WebRTCManager {
         if (this.localStream) {
             const track = this.localStream.getVideoTracks()[0];
             track.enabled = !track.enabled;
-            btn.textContent = track.enabled ? 'Video Off' : 'Video On';
-            btn.classList.toggle('active', !track.enabled);
+            btn.classList.toggle('off', !track.enabled);
         }
     }
 }

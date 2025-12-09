@@ -1,0 +1,33 @@
+1. 핵심 기능 (Core Features)
+이 기능들은 앱의 기본적인 사용을 위해 가장 먼저 확인해야 합니다.
+
+사용자 인증 (Authentication): AuthManager.js
+회원가입 및 로그인 절차
+토큰 저장 및 자동 로그인 (세션 유효성 검사)
+서버 및 채널 관리 (Server & Channel): ServerManager.js
+새로운 서버 생성 및 리스트 로딩
+채널 생성, 선택 및 전환
+멤버 권한 관리 (Update Role)
+실시간 채팅 (Messaging): ChatManager.js, SocketManager.js
+메시지 전송 및 수신 (Socket.io 이벤트)
+채팅 내역 불러오기
+실시간 연결 상태 관리 (재연결 로직 등)
+
+
+2. 고급 화상/음성 기능 (Multimedia Features)
+오류가 발생하기 쉬운 복잡한 기능들입니다.
+
+음성/화상 통화 (Voice/Video Call): WebRTCManager.js
+1:1 및 그룹 통화 연결 (Signaling: Offer/Answer/Candidate)
+카메라/마이크 권한 요청 및 스트림 처리
+통화 오버레이 UI (참여자 비디오 그리드)
+화면 공유 (Screen Sharing): WebRTCManager.js
+화면 공유 시작 및 중지 (getDisplayMedia)
+공유된 화면이 다른 사용자에게 정상적으로 보이는지 테스트
+3. UI/UX 및 기타 기능
+테마 및 설정 (UI/Settings): UIManager.js, styles.css
+다크/라이트 모드 전환
+방해 금지 모드 (DND) 토글
+프로필 수정 모달 동작 (이름, 상태 메시지 변경)
+창 제어 (Window Controls): preload.js
+최소화, 최대화, 닫기 버튼 동작 (커스텀 타이틀바)

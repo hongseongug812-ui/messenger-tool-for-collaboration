@@ -1,0 +1,70 @@
+{
+    "tech_stack": [
+        "Python",
+        "FastAPI",
+        "MongoDB",
+        "Socket.IO"
+    ],
+    "features": [
+        {
+            "name": "Authentication",
+            "description": "User management APIs",
+            "files": [
+                "backend/app/main.py"
+            ],
+            "api_doc": {
+                "openapi": "3.0.0",
+                "paths": {
+                    "/auth/signup": {
+                        "post": {
+                            "summary": "Register New User",
+                            "requestBody": {
+                                "content": {
+                                    "application/json": {
+                                        "schema": {
+                                            "type": "object",
+                                            "properties": {
+                                                "username": {
+                                                    "type": "string"
+                                                },
+                                                "password": {
+                                                    "type": "string"
+                                                },
+                                                "email": {
+                                                    "type": "string"
+                                                },
+                                                "name": {
+                                                    "type": "string"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "/auth/login": {
+                        "post": {
+                            "summary": "Login"
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "name": "Server Management",
+            "description": "Server CRUD",
+            "files": [
+                "backend/app/main.py"
+            ],
+            "api_doc": {
+                "paths": {
+                    "/servers/": {
+                        "get": {},
+                        "post": {}
+                    }
+                }
+            }
+        }
+    ]
+}
