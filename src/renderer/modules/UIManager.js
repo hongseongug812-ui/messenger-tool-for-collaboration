@@ -39,8 +39,8 @@ export class UIManager {
     loadTheme() {
         const savedTheme = localStorage.getItem('theme');
         if (savedTheme) {
-            this.currentTheme = savedTheme;
-            this.applyTheme(savedTheme);
+            this.currentTheme = savedTheme === 'light' ? 'light' : 'dark';
+            this.applyTheme(this.currentTheme);
         } else {
             // 시스템 테마 감지
             if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
@@ -53,12 +53,15 @@ export class UIManager {
         }
     }
 
-    applyTheme(theme) {
+  applyTheme(theme) {
+        // data-theme 속성으로 명시적으로 전환 (light/dark 모두 지정)
         document.documentElement.setAttribute('data-theme', theme);
+        document.documentElement.classList.toggle('theme-light', theme === 'light');
+        document.documentElement.classList.toggle('theme-dark', theme === 'dark');
         this.currentTheme = theme;
         localStorage.setItem('theme', theme);
         this.updateThemeButton();
-    }
+  }
 
     toggleTheme() {
         const newTheme = this.currentTheme === 'dark' ? 'light' : 'dark';

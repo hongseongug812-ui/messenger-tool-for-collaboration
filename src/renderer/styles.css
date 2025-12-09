@@ -4878,7 +4878,7 @@ body {
   font-weight: 500;
 }
 
-.call-cont:root {
+:root {
   /* HSL Color Variables for easy theming */
   --primary-h: 250;
   --primary-s: 85%;
@@ -4889,9 +4889,6 @@ body {
   /* Deep space black */
   --bg-sidebar: rgba(20, 20, 28, 0.7);
   --bg-panel: rgba(30, 30, 40, 0.6);
-
-  --text-primary: #ffffff;
-  --text-secondary: #a0a0b0;
 
   --glass-border: 1px solid rgba(255, 255, 255, 0.1);
   --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
@@ -4905,6 +4902,17 @@ body {
   --text-secondary: #555555;
   --glass-border: 1px solid rgba(0, 0, 0, 0.1);
   --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.1);
+}
+
+/* 다크 테마 변수 (라이트→다크 전환 시 적용) */
+[data-theme="dark"] {
+  --bg-dark: #0a0a0f;
+  --bg-sidebar: rgba(20, 20, 28, 0.7);
+  --bg-panel: rgba(30, 30, 40, 0.6);
+  --text-primary: #f0f0f5;
+  --text-secondary: #8888a0;
+  --glass-border: 1px solid rgba(255, 255, 255, 0.1);
+  --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
 }
 
 body {
@@ -5590,6 +5598,7 @@ body {
     opacity: 1;
   }
 }
+
 /* =========================
    리마인더 모달 스타일
    ========================= */
@@ -5691,6 +5700,7 @@ body {
     transform: translateX(400px);
     opacity: 0;
   }
+
   to {
     transform: translateX(0);
     opacity: 1;
@@ -5702,9 +5712,12 @@ body {
 }
 
 @keyframes highlight {
-  0%, 100% {
+
+  0%,
+  100% {
     background: transparent;
   }
+
   50% {
     background: var(--accent-transparent);
   }

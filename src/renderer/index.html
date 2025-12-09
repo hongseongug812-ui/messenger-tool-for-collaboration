@@ -372,9 +372,10 @@
               </button>
               <button class="context-menu-item" data-action="remind">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                  <circle cx="12" cy="13" r="8" stroke="currentColor" stroke-width="1.5"/>
-                  <path d="M12 9v4l3 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-                  <path d="M12 5V3M17 6l1.5-1.5M19 12h2M7 6L5.5 4.5M5 12H3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                  <circle cx="12" cy="13" r="8" stroke="currentColor" stroke-width="1.5" />
+                  <path d="M12 9v4l3 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                  <path d="M12 5V3M17 6l1.5-1.5M19 12h2M7 6L5.5 4.5M5 12H3" stroke="currentColor" stroke-width="1.5"
+                    stroke-linecap="round" />
                 </svg>
                 <span>나중에 리마인드</span>
               </button>
@@ -1697,13 +1698,16 @@
       </div>
       <div class="modal-body">
         <div class="dm-search" style="margin-bottom: 16px;">
-          <input type="text" id="dm-search-input" placeholder="사용자 검색..." style="width: 100%; padding: 8px 12px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-secondary); color: var(--text-primary);">
+          <input type="text" id="dm-search-input" placeholder="사용자 검색..."
+            style="width: 100%; padding: 8px 12px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-secondary); color: var(--text-primary);">
         </div>
         <div class="dm-list" id="dm-list">
           <!-- DM 목록이 동적으로 추가됨 -->
           <div class="dm-empty" id="dm-empty">
-            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" style="color: var(--text-tertiary); margin: 0 auto 16px;">
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none"
+              style="color: var(--text-tertiary); margin: 0 auto 16px;">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor"
+                stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
             <p style="color: var(--text-secondary); text-align: center;">
               다이렉트 메시지가 없습니다.<br>
@@ -1752,8 +1756,206 @@
 
           <div class="reminder-info" id="reminder-selected-time" style="display: none;">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-              <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5"/>
-              <path d="M12 6v6l4 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5" />
+              <path d="M12 6v6l4 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+            </svg>
+            <span id="reminder-time-display"></span>
+          </div>
+
+          <div class="modal-footer">
+            <button class="btn-secondary" id="cancel-reminder-btn">취소</button>
+            <button class="btn-primary" id="create-reminder-btn" disabled>리마인더 생성</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2FA 설정 모달 -->
+  <div class="modal-overlay" id="2fa-setup-modal" style="display: none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>2단계 인증 설정</h3>
+        <button class="icon-btn modal-close" id="close-2fa-setup">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+            <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div id="2fa-setup-step1">
+          <h4 style="margin-bottom: 12px;">1단계: QR 코드 스캔</h4>
+          <p style="margin-bottom: 16px; color: var(--text-secondary);">
+            Google Authenticator, Authy 또는 다른 인증 앱으로 아래 QR 코드를 스캔하세요.
+          </p>
+          <div style="text-align: center; margin: 20px 0;">
+            <img id="2fa-qr-code" src="" alt="QR Code"
+              style="max-width: 200px; border: 1px solid var(--border); border-radius: 8px; padding: 12px;">
+          </div>
+          <div class="form-group">
+            <label>또는 시크릿 키를 수동으로 입력:</label>
+            <input type="text" id="2fa-secret" readonly
+              style="font-family: monospace; background: var(--background-secondary);">
+          </div>
+          <h4 style="margin: 24px 0 12px;">2단계: 인증 코드 입력</h4>
+          <p style="margin-bottom: 16px; color: var(--text-secondary);">
+            인증 앱에 표시된 6자리 코드를 입력하여 설정을 완료하세요.
+          </p>
+          <form id="2fa-verify-form">
+            <div class="form-group">
+              <label for="2fa-verify-code">인증 코드</label>
+              <input type="text" id="2fa-verify-code" placeholder="6자리 코드 입력" maxlength="6" pattern="[0-9]{6}" required
+                autocomplete="one-time-code">
+            </div>
+            <div class="modal-actions">
+              <button type="button" class="btn-cancel" id="cancel-2fa-setup">취소</button>
+              <button type="submit" class="btn-primary">2FA 활성화</button>
+            </div>
+          </form>
+        </div>
+        <div id="2fa-setup-success" style="display: none; text-align: center; padding: 20px;">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none"
+            style="color: var(--success); margin: 0 auto 12px;">
+            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" />
+            <path d="M9 12l2 2 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+              stroke-linejoin="round" />
+          </svg>
+          <h4 style="margin-bottom: 8px;">2단계 인증이 활성화되었습니다</h4>
+          <p style="color: var(--text-secondary); margin-bottom: 20px;">
+            이제 로그인 시 인증 코드를 입력해야 합니다.
+          </p>
+          <button class="btn-primary"
+            onclick="document.getElementById('2fa-setup-modal').style.display='none'">확인</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 서버 컨텍스트 메뉴 -->
+  <div class="context-menu" id="server-context-menu" style="display: none;">
+    <div class="context-menu-item" id="ctx-server-invite">초대하기</div>
+    <div class="context-menu-item" id="ctx-server-settings">서버 설정</div>
+    <div class="context-menu-divider"></div>
+    <div class="context-menu-item danger" id="ctx-server-leave">서버 나가기</div>
+  </div>
+
+  <!-- 채널 컨텍스트 메뉴 -->
+  <div class="context-menu" id="channel-context-menu" style="display: none;">
+    <div class="context-menu-item" id="ctx-channel-edit">채널 편집</div>
+    <button type="button" class="btn-cancel" id="cancel-reset-password">취소</button>
+    <button type="submit" class="btn-primary">비밀번호 변경</button>
+  </div>
+  </form>
+  </div>
+  </div>
+  </div>
+
+  <!-- 저장한 메시지 모달 -->
+  <div class="modal-overlay" id="saved-messages-modal" style="display: none;">
+    <div class="modal saved-messages-modal">
+      <div class="modal-header">
+        <h3>저장한 메시지</h3>
+        <button class="icon-btn modal-close" id="close-saved-messages">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+            <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="saved-messages-info" style="margin-bottom: 16px; color: var(--text-secondary); font-size: 14px;">
+          나만 볼 수 있도록 저장한 메시지들입니다. 중요한 정보나 TODO를 기록하세요.
+        </div>
+        <div class="saved-messages-list" id="saved-messages-list">
+          <!-- 저장한 메시지들이 동적으로 추가됨 -->
+          <div class="saved-messages-empty" id="saved-messages-empty">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none"
+              style="color: var(--text-tertiary); margin: 0 auto 16px;">
+              <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" stroke="currentColor" stroke-width="1.5"
+                stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <p style="color: var(--text-secondary); text-align: center;">
+              저장한 메시지가 없습니다.<br>
+              메시지를 우클릭하여 저장할 수 있습니다.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DM (다이렉트 메시지) 모달 -->
+  <div class="modal-overlay" id="dm-modal" style="display: none;">
+    <div class="modal dm-modal">
+      <div class="modal-header">
+        <h3>다이렉트 메시지</h3>
+        <button class="icon-btn modal-close" id="close-dm-modal">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+            <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="dm-search" style="margin-bottom: 16px;">
+          <input type="text" id="dm-search-input" placeholder="사용자 검색..."
+            style="width: 100%; padding: 8px 12px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-secondary); color: var(--text-primary);">
+        </div>
+        <div class="dm-list" id="dm-list">
+          <!-- DM 목록이 동적으로 추가됨 -->
+          <div class="dm-empty" id="dm-empty">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none"
+              style="color: var(--text-tertiary); margin: 0 auto 16px;">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor"
+                stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <p style="color: var(--text-secondary); text-align: center;">
+              다이렉트 메시지가 없습니다.<br>
+              다른 사용자와 개인적으로 대화를 시작해보세요.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 리마인더 설정 모달 -->
+  <div class="modal-overlay" id="reminder-modal" style="display: none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>리마인더 설정</h3>
+        <button class="icon-btn modal-close" id="close-reminder-modal">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+            <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="reminder-setup">
+          <div class="form-group">
+            <label>리마인더 내용</label>
+            <input type="text" id="reminder-text" class="form-input" placeholder='예: "이거 회신하기"' />
+          </div>
+
+          <div class="form-group">
+            <label>알림 시간</label>
+            <div class="reminder-time-options">
+              <button class="reminder-time-btn" data-minutes="10">10분 후</button>
+              <button class="reminder-time-btn" data-minutes="30">30분 후</button>
+              <button class="reminder-time-btn" data-minutes="60">1시간 후</button>
+              <button class="reminder-time-btn" data-minutes="240">4시간 후</button>
+              <button class="reminder-time-btn" data-minutes="1440">내일</button>
+              <button class="reminder-time-btn" id="custom-time-btn">직접 설정</button>
+            </div>
+          </div>
+
+          <div class="form-group" id="custom-time-group" style="display: none;">
+            <label>날짜 및 시간</label>
+            <input type="datetime-local" id="reminder-custom-time" class="form-input" />
+          </div>
+
+          <div class="reminder-info" id="reminder-selected-time" style="display: none;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5" />
+              <path d="M12 6v6l4 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
             </svg>
             <span id="reminder-time-display"></span>
           </div>
@@ -1843,7 +2045,6 @@
     <div class="context-menu-item danger" id="ctx-channel-delete">채널 삭제</div>
   </div>
 
-  <script src="../../node_modules/dompurify/dist/purify.min.js"></script>
   <script type="module" src="app.js"></script>
 </body>
 

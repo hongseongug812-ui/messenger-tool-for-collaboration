@@ -71,16 +71,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 설정 가져오기
   getConfig: () => ipcRenderer.invoke('get-config'),
   getApiCredentials: () => ipcRenderer.invoke('get-api-credentials'),
-  
+
   // 창 컨트롤
   minimizeWindow: () => ipcRenderer.invoke('window-minimize'),
   maximizeWindow: () => ipcRenderer.invoke('window-maximize'),
   closeWindow: () => ipcRenderer.invoke('window-close'),
-  
+
   // 알림
   showNotification: (options) => ipcRenderer.invoke('show-notification', options),
   updateBadge: (count) => ipcRenderer.invoke('update-badge', count),
-  
+
   // 이벤트 리스너
   onDndModeChanged: (callback) => {
     ipcRenderer.on('dnd-mode-changed', (event, enabled) => callback(enabled));
@@ -108,10 +108,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     console.log('[Preload] 새로운 Socket.IO 클라이언트 생성 중...');
 
-    // 맥 환경에 최적화된 설정
+    // Electron 환경에 최적화된 설정
     const socketOptions = {
       path: '/socket.io',
-      transports: ['websocket', 'polling'],  // 맥에서는 websocket을 먼저 시도
+      transports: ['polling', 'websocket'],  // polling을 먼저 시도
       reconnection: true,
       reconnectionAttempts: 20,
       reconnectionDelay: 1000,
@@ -122,7 +122,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       forceNew: true,
       upgrade: true,
       rememberUpgrade: true,
-      // 맥 환경 추가 옵션
+      // Electron 환경 추가 옵션
       closeOnBeforeunload: false,
       secure: url.startsWith('https'),
       rejectUnauthorized: false,
@@ -197,7 +197,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }
   },
   isSocketConnected: () => !!(socket && socket.connected),
-  
+
   // 플랫폼 정보
   platform: process.platform
 });

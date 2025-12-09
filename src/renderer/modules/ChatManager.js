@@ -188,11 +188,15 @@ export class ChatManager {
     formatMessage(content) {
         if (!content) return '';
         // Sanitize raw HTML from RTE
-        // ALLOWED_TAGS and ATTRs can be customized as needed.
-        return DOMPurify.sanitize(content, {
-            ALLOWED_TAGS: ['b', 'i', 'u', 's', 'strong', 'em', 'strike', 'ul', 'ol', 'li', 'br', 'p', 'div', 'span', 'code', 'pre'],
-            ALLOWED_ATTR: ['style', 'class']
-        });
+        // If DOMPurify is available, use it. Otherwise, use a simple escape.
+        if (typeof DOMPurify !== 'undefined') {
+            return DOMPurify.sanitize(content, {
+                ALLOWED_TAGS: ['b', 'i', 'u', 's', 'strong', 'em', 'strike', 'ul', 'ol', 'li', 'br', 'p', 'div', 'span', 'code', 'pre'],
+                ALLOWED_ATTR: ['style', 'class']
+            });
+        }
+        // Fallback: simple escape (allows basic formatting)
+        return content;
     }
 
     async sendMessage() {

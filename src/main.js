@@ -80,10 +80,8 @@ function createWindow() {
     mainWindow.show();
   });
 
-  // 개발 모드에서 DevTools 열기
-  if (config.debugMode) {
-    mainWindow.webContents.openDevTools();
-  }
+  // 개발 모드에서 DevTools 열기 (항상 열기)
+  mainWindow.webContents.openDevTools();
 
   // 창 닫기 시 앱 종료
   mainWindow.on('close', () => {
@@ -95,7 +93,7 @@ function createWindow() {
 // 트레이 아이콘 생성
 function createTray() {
   const iconPath = path.join(__dirname, '../assets/tray-icon.png');
-  
+
   // 트레이 아이콘이 없으면 기본 아이콘 생성
   let trayIcon;
   try {
@@ -106,19 +104,19 @@ function createTray() {
   } catch (e) {
     trayIcon = createDefaultTrayIcon();
   }
-  
+
   tray = new Tray(trayIcon.resize({ width: 16, height: 16 }));
-  
+
   const contextMenu = Menu.buildFromTemplate([
-    { 
-      label: '열기', 
+    {
+      label: '열기',
       click: () => {
         mainWindow.show();
         mainWindow.focus();
       }
     },
     { type: 'separator' },
-    { 
+    {
       label: '방해금지 모드',
       type: 'checkbox',
       checked: false,
@@ -127,8 +125,8 @@ function createTray() {
       }
     },
     { type: 'separator' },
-    { 
-      label: '종료', 
+    {
+      label: '종료',
       click: () => {
         app.isQuitting = true;
         app.quit();
