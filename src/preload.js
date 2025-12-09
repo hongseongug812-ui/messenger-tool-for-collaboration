@@ -87,8 +87,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // Socket.IO
-  connectSocket: (url) => {
+  connectSocket: (url, token) => {
     console.log('[Preload] connectSocket 호출됨, URL:', url);
+    console.log('[Preload] Token 제공됨:', !!token);
     console.log('[Preload] Platform:', process.platform);
     console.log('[Preload] ioClient 사용 가능:', !!ioClient);
 
@@ -124,7 +125,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
       // 맥 환경 추가 옵션
       closeOnBeforeunload: false,
       secure: url.startsWith('https'),
-      rejectUnauthorized: false
+      rejectUnauthorized: false,
+      // 인증 토큰 추가
+      auth: token ? { token: token } : undefined
     };
 
     console.log('[Preload] Socket options:', socketOptions);

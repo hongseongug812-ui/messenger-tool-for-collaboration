@@ -1684,6 +1684,37 @@
     </div>
   </div>
 
+  <!-- DM (다이렉트 메시지) 모달 -->
+  <div class="modal-overlay" id="dm-modal" style="display: none;">
+    <div class="modal dm-modal">
+      <div class="modal-header">
+        <h3>다이렉트 메시지</h3>
+        <button class="icon-btn modal-close" id="close-dm-modal">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+            <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="dm-search" style="margin-bottom: 16px;">
+          <input type="text" id="dm-search-input" placeholder="사용자 검색..." style="width: 100%; padding: 8px 12px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-secondary); color: var(--text-primary);">
+        </div>
+        <div class="dm-list" id="dm-list">
+          <!-- DM 목록이 동적으로 추가됨 -->
+          <div class="dm-empty" id="dm-empty">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" style="color: var(--text-tertiary); margin: 0 auto 16px;">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <p style="color: var(--text-secondary); text-align: center;">
+              다이렉트 메시지가 없습니다.<br>
+              다른 사용자와 개인적으로 대화를 시작해보세요.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- 리마인더 설정 모달 -->
   <div class="modal-overlay" id="reminder-modal" style="display: none;">
     <div class="modal">

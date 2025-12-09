@@ -90,11 +90,69 @@ export class ServerManager {
         }
     }
 
-    showDMList() {
-        // Show DM list modal or panel
+    async showDMList() {
+        // Show DM list modal
         console.log('Opening DM list...');
-        // TODO: Implement DM list view
-        alert('다이렉트 메시지 기능은 곧 추가될 예정입니다.');
+        const modal = document.getElementById('dm-modal');
+        if (modal) {
+            modal.style.display = 'flex';
+            await this.loadDMList();
+        }
+    }
+
+    async loadDMList() {
+        try {
+            // TODO: API 엔드포인트가 있으면 실제 DM 목록을 가져옴
+            // const response = await this.app.apiRequest('/dms');
+
+            // 임시로 빈 목록 표시
+            this.renderDMList([]);
+        } catch (error) {
+            console.error('DM 목록 로드 오류:', error);
+        }
+    }
+
+    renderDMList(dms) {
+        const list = document.getElementById('dm-list');
+        const empty = document.getElementById('dm-empty');
+
+        if (!list) return;
+
+        if (dms.length === 0) {
+            if (empty) empty.style.display = 'block';
+            const existingDMs = list.querySelectorAll('.dm-item');
+            existingDMs.forEach(dm => dm.remove());
+            return;
+        }
+
+        if (empty) empty.style.display = 'none';
+
+        const existingDMs = list.querySelectorAll('.dm-item');
+        existingDMs.forEach(dm => dm.remove());
+
+        dms.forEach(dm => {
+            const dmEl = document.createElement('div');
+            dmEl.className = 'dm-item';
+            dmEl.style.cssText = 'display: flex; align-items: center; padding: 12px; cursor: pointer; border-radius: 6px; margin-bottom: 8px;';
+            dmEl.innerHTML = `
+                <div class="avatar" style="width: 40px; height: 40px; border-radius: 50%; background: var(--accent-color); display: flex; align-items: center; justify-content: center; margin-right: 12px; color: white; font-weight: bold;">
+                    ${dm.user?.name?.[0] || 'U'}
+                </div>
+                <div style="flex: 1;">
+                    <div style="font-weight: 500; color: var(--text-primary);">${dm.user?.name || 'Unknown'}</div>
+                    <div style="font-size: 13px; color: var(--text-secondary); margin-top: 2px;">${dm.lastMessage || '메시지 없음'}</div>
+                </div>
+            `;
+
+            dmEl.addEventListener('click', () => {
+                // TODO: DM 채널로 전환
+                console.log('DM 클릭:', dm.user?.name);
+                const dmModal = document.getElementById('dm-modal');
+                if (dmModal) dmModal.style.display = 'none';
+            });
+
+            list.appendChild(dmEl);
+        });
     }
 
     showSavedMessages() {
