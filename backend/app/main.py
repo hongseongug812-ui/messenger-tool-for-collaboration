@@ -28,6 +28,8 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from openai import OpenAI
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.date import DateTrigger
 import google.generativeai as genai
 from dotenv import load_dotenv
 
@@ -321,6 +323,7 @@ notification_settings_col = mongo_db["notification_settings"]  # Notification pr
 password_reset_tokens_col = mongo_db["password_reset_tokens"]  # 비밀번호 재설정 토큰
 login_sessions_col = mongo_db["login_sessions"]  # 로그인 세션 기록
 bookmarks_col = mongo_db["bookmarks"]  # 사용자별 북마크(저장한 메시지)
+reminders_col = mongo_db["reminders"]  # 리마인더
 
 # 비밀번호 해싱 및 인증 스킴 (bcrypt 72바이트 제한 회피를 위해 bcrypt_sha256 사용)
 pwd_context = CryptContext(schemes=["bcrypt_sha256"], deprecated="auto")
@@ -337,6 +340,9 @@ sio = socketio.AsyncServer(
     logger=True,  # Socket.IO 로깅 활성화
     engineio_logger=True,  # Engine.IO 로깅 활성화
 )
+
+# 스케줄러 초기화 (리마인더용)
+scheduler = AsyncIOScheduler()
 
 # FastAPI 앱
 fastapi_app = FastAPI(title="Work Messenger Backend", version="0.2.0")
@@ -355,6 +361,156 @@ async def _log_mongo_connection():
     print(f"[backend] MongoDB 연결 성공: {MONGO_URI} / DB={MONGO_DB}")
   except Exception as exc:
     print(f"[backend] MongoDB 연결 실패: {exc}")
+
+
+# ========================================
+# 리마인더 스케줄링 함수들
+# ========================================
+
+async def send_reminder_notification(reminder_id: str):
+  """리마인더 알림 전송 및 완료 처리"""
+  try:
+    reminder = await reminders_col.find_one({"_id": reminder_id})
+    if not reminder or reminder.get("completed"):
+      return
+
+    # 리마인더 완료 표시
+    await reminders_col.update_one(
+      {"_id": reminder_id},
+      {"$set": {"completed": True}}
+    )
+
+    # Socket.IO를 통해 사용자에게 알림 전송
+    user_id = reminder["user_id"]
+    notification_data = {
+      "type": "reminder",
+      "reminder_id": reminder_id,
+      "text": reminder["text"],
+      "message_id": reminder.get("message_id"),
+      "channel_id": reminder.get("channel_id"),
+      "created_at": reminder["created_at"].isoformat()
+    }
+
+    await sio.emit("reminder_notification", notification_data, room=user_id)
+    print(f"[reminder] 알림 전송: {user_id} - {reminder['text']}")
+
+  except Exception as e:
+    print(f"[reminder] 알림 전송 실패: {e}")
+
+
+def schedule_reminder(reminder_id: str, remind_at: datetime):
+  """리마인더를 스케줄러에 등록"""
+  try:
+    # 과거 시간이면 스케줄하지 않음
+    if remind_at <= _now():
+      print(f"[reminder] 과거 시간: {reminder_id}")
+      return
+
+    scheduler.add_job(
+      send_reminder_notification,
+      DateTrigger(run_date=remind_at),
+      args=[reminder_id],
+      id=reminder_id,
+      replace_existing=True
+    )
+    print(f"[reminder] 스케줄 등록: {reminder_id} at {remind_at}")
+  except Exception as e:
+    print(f"[reminder] 스케줄 등록 실패: {e}")
+
+
+async def load_existing_reminders():
+  """서버 시작 시 기존 리마인더를 스케줄러에 로드"""
+  try:
+    # 완료되지 않은 리마인더만 조회
+    cursor = reminders_col.find({"completed": False})
+    reminders = await cursor.to_list(length=None)
+
+    count = 0
+    for reminder in reminders:
+      remind_at = reminder["remind_at"]
+
+      # 과거 시간이면 즉시 완료 처리
+      if remind_at <= _now():
+        await reminders_col.update_one(
+          {"_id": reminder["_id"]},
+          {"$set": {"completed": True}}
+        )
+        continue
+
+      # 미래 시간이면 스케줄 등록
+      schedule_reminder(reminder["_id"], remind_at)
+      count += 1
+
+    print(f"[reminder] {count}개의 리마인더 로드 완료")
+  except Exception as e:
+    print(f"[reminder] 리마인더 로드 실패: {e}")
+
+
+def parse_remind_command(content: str) -> Optional[dict]:
+  """
+  /remind 슬래시 명령어 파싱
+
+  지원 형식:
+  - /remind me 10m "메시지"
+  - /remind me 1h "메시지"
+  - /remind me 2d "메시지"
+  - /remind me tomorrow "메시지"
+
+  Returns:
+    {
+      "text": "리마인더 텍스트",
+      "remind_at": datetime,
+      "is_command": True
+    } or None if not a remind command
+  """
+  # /remind 명령어 체크
+  if not content.strip().startswith("/remind"):
+    return None
+
+  # 정규 표현식: /remind me {time} {message}
+  # 지원: 10m, 1h, 2d, tomorrow
+  pattern = r'^/remind\s+me\s+(\d+m|\d+h|\d+d|tomorrow)\s+"([^"]+)"'
+  match = re.match(pattern, content.strip(), re.IGNORECASE)
+
+  if not match:
+    return {
+      "error": '잘못된 형식입니다. 예: /remind me 10m "메시지"',
+      "is_command": True
+    }
+
+  time_str = match.group(1).lower()
+  message_text = match.group(2)
+
+  # 시간 계산
+  now = _now()
+
+  if time_str == "tomorrow":
+    # 내일 오전 9시
+    remind_at = (now + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
+  elif time_str.endswith('m'):
+    # 분 단위
+    minutes = int(time_str[:-1])
+    remind_at = now + timedelta(minutes=minutes)
+  elif time_str.endswith('h'):
+    # 시간 단위
+    hours = int(time_str[:-1])
+    remind_at = now + timedelta(hours=hours)
+  elif time_str.endswith('d'):
+    # 일 단위
+    days = int(time_str[:-1])
+    remind_at = now + timedelta(days=days)
+  else:
+    return {
+      "error": "지원하지 않는 시간 형식입니다.",
+      "is_command": True
+    }
+
+  return {
+    "text": message_text,
+    "remind_at": remind_at,
+    "is_command": True,
+    "time_str": time_str
+  }
 
 
 # 초기 데이터 부트스트랩 (MongoDB에 서버/메시지가 없을 때)
@@ -412,6 +568,11 @@ async def bootstrap_default_data():
 
   await servers_col.insert_one(default_server)
   await messages_col.insert_many(default_messages)
+
+  # 스케줄러 시작 및 기존 리마인더 로드
+  scheduler.start()
+  await load_existing_reminders()
+  print("[backend] 스케줄러 시작 완료")
 
 
 # -----------------------------
@@ -536,6 +697,27 @@ class Bookmark(BaseModel):
   server_id: Optional[str] = None
   channel_id: str
   created_at: datetime
+
+
+class ReminderCreate(BaseModel):
+  """리마인더 생성 요청"""
+  text: str  # 리마인더 내용
+  remind_at: datetime  # 알림 시간
+  message_id: Optional[str] = None  # 연결된 메시지 ID (선택적)
+  channel_id: Optional[str] = None  # 채널 ID
+
+
+class Reminder(BaseModel):
+  """리마인더"""
+  id: str
+  user_id: str
+  text: str
+  remind_at: datetime
+  created_at: datetime
+  completed: bool = False
+  message_id: Optional[str] = None
+  channel_id: Optional[str] = None
+  server_id: Optional[str] = None
 
 
 class Sender(BaseModel):
@@ -1432,6 +1614,153 @@ async def check_bookmark(
   return {"bookmarked": bookmark is not None}
 
 
+# ========================================
+# 리마인더
+# ========================================
+
+@fastapi_app.post("/reminders", response_model=Reminder)
+async def create_reminder(
+  reminder_data: ReminderCreate,
+  current_user: User = Depends(get_current_user)
+):
+  """리마인더 생성"""
+  # 리마인더 ID 생성
+  reminder_id = f"reminder_{uuid.uuid4().hex[:12]}"
+
+  # 메시지 연결 시 추가 정보 조회
+  server_id = None
+  if reminder_data.message_id:
+    message = await messages_col.find_one({"_id": reminder_data.message_id})
+    if message:
+      server_id = message.get("server_id")
+
+  # 리마인더 문서 생성
+  reminder_doc = {
+    "_id": reminder_id,
+    "user_id": current_user.id,
+    "text": reminder_data.text,
+    "remind_at": reminder_data.remind_at,
+    "created_at": _now(),
+    "completed": False,
+    "message_id": reminder_data.message_id,
+    "channel_id": reminder_data.channel_id,
+    "server_id": server_id
+  }
+
+  await reminders_col.insert_one(reminder_doc)
+
+  # 스케줄러에 등록
+  schedule_reminder(reminder_id, reminder_data.remind_at)
+
+  return Reminder(
+    id=reminder_id,
+    user_id=current_user.id,
+    text=reminder_data.text,
+    remind_at=reminder_data.remind_at,
+    created_at=reminder_doc["created_at"],
+    completed=False,
+    message_id=reminder_data.message_id,
+    channel_id=reminder_data.channel_id,
+    server_id=server_id
+  )
+
+
+@fastapi_app.get("/reminders")
+async def get_reminders(
+  current_user: User = Depends(get_current_user),
+  include_completed: bool = False,
+  limit: int = 50,
+  offset: int = 0
+):
+  """사용자의 리마인더 목록 조회"""
+  query = {"user_id": current_user.id}
+
+  if not include_completed:
+    query["completed"] = False
+
+  cursor = reminders_col.find(query).sort("remind_at", 1).skip(offset).limit(limit)
+  reminders = await cursor.to_list(length=limit)
+
+  # 결과 변환
+  result = []
+  for reminder in reminders:
+    result.append({
+      "id": reminder["_id"],
+      "text": reminder["text"],
+      "remind_at": reminder["remind_at"].isoformat(),
+      "created_at": reminder["created_at"].isoformat(),
+      "completed": reminder.get("completed", False),
+      "message_id": reminder.get("message_id"),
+      "channel_id": reminder.get("channel_id"),
+      "server_id": reminder.get("server_id")
+    })
+
+  # 전체 개수
+  total = await reminders_col.count_documents(query)
+
+  return {
+    "reminders": result,
+    "total": total,
+    "limit": limit,
+    "offset": offset
+  }
+
+
+@fastapi_app.delete("/reminders/{reminder_id}")
+async def delete_reminder(
+  reminder_id: str,
+  current_user: User = Depends(get_current_user)
+):
+  """리마인더 삭제"""
+  # 권한 확인
+  reminder = await reminders_col.find_one({"_id": reminder_id})
+  if not reminder:
+    raise HTTPException(status_code=404, detail="Reminder not found")
+
+  if reminder["user_id"] != current_user.id:
+    raise HTTPException(status_code=403, detail="Not authorized")
+
+  # 스케줄러에서 제거
+  try:
+    scheduler.remove_job(reminder_id)
+  except Exception:
+    pass  # 이미 실행되었거나 없으면 무시
+
+  # DB에서 삭제
+  await reminders_col.delete_one({"_id": reminder_id})
+
+  return {"status": "ok", "message": "Reminder deleted"}
+
+
+@fastapi_app.post("/reminders/{reminder_id}/complete")
+async def complete_reminder(
+  reminder_id: str,
+  current_user: User = Depends(get_current_user)
+):
+  """리마인더 완료 처리"""
+  # 권한 확인
+  reminder = await reminders_col.find_one({"_id": reminder_id})
+  if not reminder:
+    raise HTTPException(status_code=404, detail="Reminder not found")
+
+  if reminder["user_id"] != current_user.id:
+    raise HTTPException(status_code=403, detail="Not authorized")
+
+  # 완료 처리
+  await reminders_col.update_one(
+    {"_id": reminder_id},
+    {"$set": {"completed": True}}
+  )
+
+  # 스케줄러에서 제거
+  try:
+    scheduler.remove_job(reminder_id)
+  except Exception:
+    pass
+
+  return {"status": "ok", "message": "Reminder completed"}
+
+
 # 키워드 알림 관리
 @fastapi_app.get("/auth/me/keywords")
 async def get_keywords(current_user: User = Depends(get_current_user)):
@@ -2002,6 +2331,57 @@ async def create_message(channel_id: str, payload: MessageCreate):
       # Check post permission
       if not _can_post_in_channel(channel, user_role or "member"):
         raise HTTPException(status_code=403, detail="You don't have permission to post in this channel")
+
+  # 슬래시 명령어 파싱 (/remind)
+  if payload.content:
+    remind_result = parse_remind_command(payload.content)
+    if remind_result and remind_result.get("is_command"):
+      # /remind 명령어 처리
+      if "error" in remind_result:
+        raise HTTPException(status_code=400, detail=remind_result["error"])
+
+      # 리마인더 생성
+      reminder_id = f"reminder_{uuid.uuid4().hex[:12]}"
+      reminder_doc = {
+        "_id": reminder_id,
+        "user_id": payload.sender.id if payload.sender else "unknown",
+        "text": remind_result["text"],
+        "remind_at": remind_result["remind_at"],
+        "created_at": _now(),
+        "completed": False,
+        "message_id": None,
+        "channel_id": channel_id,
+        "server_id": None  # Will be populated if needed
+      }
+
+      await reminders_col.insert_one(reminder_doc)
+      schedule_reminder(reminder_id, remind_result["remind_at"])
+
+      # 시스템 메시지로 확인 메시지 반환
+      confirmation_message = Message(
+        id=f"msg_{uuid.uuid4().hex[:12]}",
+        channel_id=channel_id,
+        sender=_build_sender(payload.sender),
+        content=f"✅ 리마인더가 설정되었습니다: \"{remind_result['text']}\" ({remind_result['time_str']} 후)",
+        timestamp=_now(),
+        files=[],
+        thread_id=payload.thread_id,
+      )
+
+      # 시스템 메시지 저장 (암호화 없이)
+      await messages_col.insert_one(
+        {
+          "_id": confirmation_message.id,
+          "channel_id": channel_id,
+          "sender": confirmation_message.sender.model_dump(),
+          "content": confirmation_message.content,
+          "timestamp": confirmation_message.timestamp,
+          "files": [],
+          "thread_id": payload.thread_id,
+        }
+      )
+
+      return confirmation_message
 
   sender = _build_sender(payload.sender)
   message = Message(

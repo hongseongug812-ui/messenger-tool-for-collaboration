@@ -104,6 +104,10 @@ export class SocketManager {
                 this.app.chatManager.handleUserReadUpdate(data);
             });
 
+            window.electronAPI.onSocketEvent('reminder_notification', (data) => {
+                this.app.chatManager.handleReminderNotification(data);
+            });
+
             // WebRTC Events
             window.electronAPI.onSocketEvent('call_user_joined', (data) => {
                 this.app.webRTCManager.handleUserJoined(data);

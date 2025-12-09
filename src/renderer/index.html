@@ -370,6 +370,14 @@
                 </svg>
                 <span>나만 보기용으로 저장</span>
               </button>
+              <button class="context-menu-item" data-action="remind">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="13" r="8" stroke="currentColor" stroke-width="1.5"/>
+                  <path d="M12 9v4l3 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                  <path d="M12 5V3M17 6l1.5-1.5M19 12h2M7 6L5.5 4.5M5 12H3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+                <span>나중에 리마인드</span>
+              </button>
               <button class="context-menu-item" data-action="move">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
                   <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
@@ -1670,6 +1678,58 @@
               저장한 메시지가 없습니다.<br>
               메시지를 우클릭하여 저장할 수 있습니다.
             </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 리마인더 설정 모달 -->
+  <div class="modal-overlay" id="reminder-modal" style="display: none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>리마인더 설정</h3>
+        <button class="icon-btn modal-close" id="close-reminder-modal">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+            <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="reminder-setup">
+          <div class="form-group">
+            <label>리마인더 내용</label>
+            <input type="text" id="reminder-text" class="form-input" placeholder='예: "이거 회신하기"' />
+          </div>
+
+          <div class="form-group">
+            <label>알림 시간</label>
+            <div class="reminder-time-options">
+              <button class="reminder-time-btn" data-minutes="10">10분 후</button>
+              <button class="reminder-time-btn" data-minutes="30">30분 후</button>
+              <button class="reminder-time-btn" data-minutes="60">1시간 후</button>
+              <button class="reminder-time-btn" data-minutes="240">4시간 후</button>
+              <button class="reminder-time-btn" data-minutes="1440">내일</button>
+              <button class="reminder-time-btn" id="custom-time-btn">직접 설정</button>
+            </div>
+          </div>
+
+          <div class="form-group" id="custom-time-group" style="display: none;">
+            <label>날짜 및 시간</label>
+            <input type="datetime-local" id="reminder-custom-time" class="form-input" />
+          </div>
+
+          <div class="reminder-info" id="reminder-selected-time" style="display: none;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M12 6v6l4 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            <span id="reminder-time-display"></span>
+          </div>
+
+          <div class="modal-footer">
+            <button class="btn-secondary" id="cancel-reminder-btn">취소</button>
+            <button class="btn-primary" id="create-reminder-btn" disabled>리마인더 생성</button>
           </div>
         </div>
       </div>

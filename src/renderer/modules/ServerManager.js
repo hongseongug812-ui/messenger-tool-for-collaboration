@@ -10,6 +10,173 @@ export class ServerManager {
         this.serverContextTarget = null;
         this.channelContextTarget = null;
         this.bindContextMenuEvents();
+        this.bindSidebarButtons();
+    }
+
+    bindSidebarButtons() {
+        // My Page button
+        const btnMyPage = document.getElementById('btn-my-page');
+        btnMyPage?.addEventListener('click', () => {
+            this.app.uiManager.showModal('member-profile-modal');
+            // Load current user data
+            if (this.app.auth.currentUser) {
+                this.app.updateUserInfo(this.app.auth.currentUser);
+            }
+        });
+
+        // DM button
+        const btnDM = document.getElementById('btn-dm');
+        btnDM?.addEventListener('click', () => {
+            this.showDMList();
+        });
+
+        // Saved Messages button
+        const btnSavedMessages = document.getElementById('btn-saved-messages');
+        btnSavedMessages?.addEventListener('click', () => {
+            this.showSavedMessages();
+        });
+
+        // Add Server button
+        const btnAddServer = document.getElementById('btn-add-server');
+        btnAddServer?.addEventListener('click', () => {
+            this.app.uiManager.showModal('create-server-modal');
+        });
+
+        // Server creation form
+        const createServerForm = document.getElementById('create-server-form');
+        createServerForm?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const nameInput = document.getElementById('server-name-input');
+            if (nameInput && nameInput.value.trim()) {
+                await this.createServer(nameInput.value.trim());
+                this.app.uiManager.hideModal('create-server-modal');
+                nameInput.value = '';
+            }
+        });
+
+        // Channel creation button
+        const btnNewChannel = document.getElementById('btn-new-channel');
+        btnNewChannel?.addEventListener('click', () => {
+            this.showCreateChannelDialog();
+        });
+    }
+
+    async showCreateChannelDialog() {
+        const channelName = prompt('새 채널 이름을 입력하세요:');
+        if (!channelName || !channelName.trim()) return;
+
+        if (!this.currentServer) {
+            alert('서버를 먼저 선택해주세요.');
+            return;
+        }
+
+        try {
+            const response = await this.app.apiRequest(`/servers/${this.currentServer.id}/channels`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    name: channelName.trim(),
+                    type: 'text'
+                })
+            });
+
+            if (response) {
+                // Reload server data
+                await this.loadServerData();
+                alert('채널이 생성되었습니다.');
+            }
+        } catch (error) {
+            console.error('채널 생성 실패:', error);
+            alert('채널 생성에 실패했습니다.');
+        }
+    }
+
+    showDMList() {
+        // Show DM list modal or panel
+        console.log('Opening DM list...');
+        // TODO: Implement DM list view
+        alert('다이렉트 메시지 기능은 곧 추가될 예정입니다.');
+    }
+
+    showSavedMessages() {
+        // Show saved messages modal
+        const modal = document.getElementById('saved-messages-modal');
+        if (modal) {
+            modal.style.display = 'flex';
+            this.loadSavedMessagesData();
+        }
+    }
+
+    async loadSavedMessagesData() {
+        try {
+            const response = await this.app.apiRequest('/bookmarks?limit=50&offset=0');
+            if (response && response.bookmarks) {
+                this.renderSavedMessages(response.bookmarks);
+            }
+        } catch (error) {
+            console.error('저장한 메시지 로드 오류:', error);
+        }
+    }
+
+    renderSavedMessages(bookmarks) {
+        const list = document.getElementById('saved-messages-list');
+        const empty = document.getElementById('saved-messages-empty');
+
+        if (!list) return;
+
+        if (bookmarks.length === 0) {
+            if (empty) empty.style.display = 'block';
+            const existingMessages = list.querySelectorAll('.saved-message-item');
+            existingMessages.forEach(msg => msg.remove());
+            return;
+        }
+
+        if (empty) empty.style.display = 'none';
+
+        const existingMessages = list.querySelectorAll('.saved-message-item');
+        existingMessages.forEach(msg => msg.remove());
+
+        bookmarks.forEach(item => {
+            const { bookmark, message } = item;
+            const messageEl = document.createElement('div');
+            messageEl.className = 'saved-message-item';
+            messageEl.innerHTML = `
+                <div class="saved-message-header">
+                    <div class="saved-message-sender">
+                        <div class="avatar">${message.sender?.avatar || 'U'}</div>
+                        <span class="sender-name">${message.sender?.name || 'Unknown'}</span>
+                        <span class="saved-message-time">${new Date(bookmark.created_at).toLocaleString('ko-KR')}</span>
+                    </div>
+                    <button class="icon-btn unsave-btn" data-message-id="${message.id}" title="저장 해제">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                            <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="saved-message-content">
+                    ${message.content || ''}
+                </div>
+                ${message.attachments && message.attachments.length > 0 ? `
+                    <div class="saved-message-attachments">
+                        ${message.attachments.map(att => `<span class="attachment-badge">${att.name}</span>`).join('')}
+                    </div>
+                ` : ''}
+            `;
+
+            const unsaveBtn = messageEl.querySelector('.unsave-btn');
+            unsaveBtn?.addEventListener('click', async () => {
+                await this.app.chatManager.toggleBookmark(message.id);
+                await this.loadSavedMessagesData();
+            });
+
+            list.appendChild(messageEl);
+        });
+
+        // Bind close button
+        const closeBtn = document.getElementById('close-saved-messages');
+        closeBtn?.addEventListener('click', () => {
+            const modal = document.getElementById('saved-messages-modal');
+            if (modal) modal.style.display = 'none';
+        });
     }
 
     bindContextMenuEvents() {
