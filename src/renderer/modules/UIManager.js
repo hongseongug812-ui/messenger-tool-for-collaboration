@@ -267,6 +267,18 @@ export class UIManager {
         closeWhiteboard?.addEventListener('click', () => {
             this.hideModal('whiteboard-modal');
         });
+
+        // 설정 버튼
+        const btnSettings = document.getElementById('btn-settings');
+        btnSettings?.addEventListener('click', () => {
+            this.showModal('settings-modal');
+        });
+
+        // 설정 모달 닫기
+        const closeSettings = document.getElementById('close-settings');
+        closeSettings?.addEventListener('click', () => {
+            this.hideModal('settings-modal');
+        });
     }
 
     initWhiteboard() {
