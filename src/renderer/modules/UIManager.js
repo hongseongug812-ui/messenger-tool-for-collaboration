@@ -374,17 +374,23 @@ export class UIManager {
             this.hideModal('calendar-modal');
         });
 
-        // 일정 추가
+        // 일정 추가 버튼 (캘린더 모달 안)
         const btnAddEvent = document.getElementById('btn-add-event');
         btnAddEvent?.addEventListener('click', () => {
             this.showModal('add-event-modal');
         });
 
-        // 일정 추가 폼
-        const addEventForm = document.getElementById('add-event-form');
-        addEventForm?.addEventListener('submit', (e) => {
+        // 일정 저장 버튼
+        const saveEvent = document.getElementById('save-event');
+        saveEvent?.addEventListener('click', (e) => {
             e.preventDefault();
             this.createCalendarEvent(e);
+        });
+
+        // 일정 추가 취소
+        const cancelEvent = document.getElementById('cancel-event');
+        cancelEvent?.addEventListener('click', () => {
+            this.hideModal('add-event-modal');
         });
 
         // 일정 추가 모달 닫기
