@@ -100,18 +100,102 @@ class WorkMessenger {
     this.uiManager.showModal('edit-profile-modal');
     // Load current profile data into inputs
     if (this.auth.currentUser) {
-      // logic similar to loadProfileData
-      this.updateUserInfo(this.auth.currentUser);
-      // Note: updateUserInfo updates PREVIEW. Inputs might need separate setters if not already covered.
-      // For now, rely on what we have.
+      const user = this.auth.currentUser;
+      const nameInput = document.getElementById('edit-profile-name');
+      const emailInput = document.getElementById('edit-profile-email');
+      const nicknameInput = document.getElementById('edit-profile-nickname');
+      const statusInput = document.getElementById('edit-profile-status-msg');
+      const deptInput = document.getElementById('edit-profile-department');
+      const titleInput = document.getElementById('edit-profile-job-title');
+      const extInput = document.getElementById('edit-profile-extension');
+      const phoneInput = document.getElementById('edit-profile-phone');
+      const locationInput = document.getElementById('edit-profile-location');
+
+      if (nameInput) nameInput.value = user.name || '';
+      if (emailInput) emailInput.value = user.email || '';
+      if (nicknameInput) nicknameInput.value = user.nickname || '';
+      if (statusInput) statusInput.value = user.status_message || '';
+      if (deptInput) deptInput.value = user.department || '';
+      if (titleInput) titleInput.value = user.job_title || '';
+      if (extInput) extInput.value = user.extension || '';
+      if (phoneInput) phoneInput.value = user.phone || '';
+      if (locationInput) locationInput.value = user.location || '';
     }
   }
 
-  saveProfileEdits() {
-    // Logic to save profile
-    // this.auth.updateProfile(...);
-    console.log('saveProfileEdits called');
+  async saveProfileEdits() {
+    const nameInput = document.getElementById('edit-profile-name');
+    const emailInput = document.getElementById('edit-profile-email');
+    const nicknameInput = document.getElementById('edit-profile-nickname');
+    const statusInput = document.getElementById('edit-profile-status-msg');
+    const deptInput = document.getElementById('edit-profile-department');
+    const titleInput = document.getElementById('edit-profile-job-title');
+    const extInput = document.getElementById('edit-profile-extension');
+    const phoneInput = document.getElementById('edit-profile-phone');
+    const locationInput = document.getElementById('edit-profile-location');
+
+    const profileData = {};
+
+    if (nameInput?.value.trim()) profileData.name = nameInput.value.trim();
+    if (emailInput?.value.trim()) profileData.email = emailInput.value.trim();
+    if (nicknameInput?.value.trim()) profileData.nickname = nicknameInput.value.trim();
+    if (statusInput?.value.trim()) profileData.status_message = statusInput.value.trim();
+    if (deptInput?.value.trim()) profileData.department = deptInput.value.trim();
+    if (titleInput?.value.trim()) profileData.job_title = titleInput.value.trim();
+    if (extInput?.value.trim()) profileData.extension = extInput.value.trim();
+    if (phoneInput?.value.trim()) profileData.phone = phoneInput.value.trim();
+    if (locationInput?.value.trim()) profileData.location = locationInput.value.trim();
+
+    try {
+      const response = await this.apiRequest('/profile', {
+        method: 'PUT',
+        body: JSON.stringify(profileData)
+      });
+
+      if (response && response.id) {
+        // Update local user data
+        this.auth.currentUser = { ...this.auth.currentUser, ...profileData };
+        this.updateUserInfo(this.auth.currentUser);
+
+        // Update profile view modal fields immediately
+        this.updateProfileViewModal(this.auth.currentUser);
+
+        this.uiManager.showToast('프로필이 저장되었습니다.', 'success');
+      } else {
+        this.uiManager.showToast('프로필 저장에 실패했습니다.', 'error');
+      }
+    } catch (error) {
+      console.error('프로필 저장 오류:', error);
+      this.uiManager.showToast('프로필 저장에 실패했습니다.', 'error');
+    }
+
     this.uiManager.hideModal('edit-profile-modal');
+  }
+
+  updateProfileViewModal(user) {
+    // Update the profile view modal fields
+    const profileName = document.getElementById('profile-name');
+    const profileNickname = document.getElementById('profile-nickname');
+    const profileStatus = document.getElementById('profile-status');
+    const profileDept = document.getElementById('profile-department');
+    const profileTitle = document.getElementById('profile-job-title');
+    const profileExt = document.getElementById('profile-extension');
+    const profilePhone = document.getElementById('profile-phone');
+    const profileLocation = document.getElementById('profile-location');
+    const profileAvatar = document.getElementById('profile-avatar');
+
+    if (profileName) profileName.textContent = user.name || '설정되지 않음';
+    if (profileNickname) profileNickname.textContent = user.nickname || '설정되지 않음';
+    if (profileStatus) profileStatus.textContent = user.status_message || '설정되지 않음';
+    if (profileDept) profileDept.textContent = user.department || '-';
+    if (profileTitle) profileTitle.textContent = user.job_title || '-';
+    if (profileExt) profileExt.textContent = user.extension || '-';
+    if (profilePhone) profilePhone.textContent = user.phone || '-';
+    if (profileLocation) profileLocation.textContent = user.location || '-';
+    if (profileAvatar && user.name) {
+      profileAvatar.textContent = user.name[0] || '';
+      profileAvatar.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+    }
   }
 
   closeMentionsModal() {

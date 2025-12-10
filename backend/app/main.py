@@ -607,6 +607,8 @@ class User(BaseModel):
   extension: Optional[str] = None  # 내선번호
   phone: Optional[str] = None  # 회사 번호
   location: Optional[str] = None  # 근무지 (본사/지점/재택 등)
+  nickname: Optional[str] = None  # 닉네임
+  status_message: Optional[str] = None  # 상태 메시지
 
   # 보안 설정 (2FA)
   totp_enabled: bool = False  # 2FA 활성화 여부
@@ -626,6 +628,8 @@ class UserProfileUpdate(BaseModel):
   extension: Optional[str] = None  # 내선번호
   phone: Optional[str] = None  # 회사 번호
   location: Optional[str] = None  # 근무지
+  nickname: Optional[str] = None  # 닉네임
+  status_message: Optional[str] = None  # 상태 메시지
   notification_keywords: Optional[List[str]] = None  # 알림 키워드
 
 
@@ -1309,6 +1313,10 @@ async def update_profile(profile_data: UserProfileUpdate, current_user: User = D
     update_fields["phone"] = profile_data.phone
   if profile_data.location is not None:
     update_fields["location"] = profile_data.location
+  if profile_data.nickname is not None:
+    update_fields["nickname"] = profile_data.nickname
+  if profile_data.status_message is not None:
+    update_fields["status_message"] = profile_data.status_message
   if profile_data.notification_keywords is not None:
     update_fields["notification_keywords"] = profile_data.notification_keywords
 
@@ -1332,6 +1340,8 @@ async def update_profile(profile_data: UserProfileUpdate, current_user: User = D
     extension=updated_user_doc.get("extension"),
     phone=updated_user_doc.get("phone"),
     location=updated_user_doc.get("location"),
+    nickname=updated_user_doc.get("nickname"),
+    status_message=updated_user_doc.get("status_message"),
     notification_keywords=updated_user_doc.get("notification_keywords", []),
   )
 
