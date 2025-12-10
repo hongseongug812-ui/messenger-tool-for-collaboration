@@ -548,21 +548,25 @@ export class ServerManager {
                 // TODO: Save collapsed state to server/local storage
             });
 
+            // Add drop zone to header for collapsed categories
+            this.setupDropZoneOnElement(header, category);
+
             categoryEl.appendChild(header);
 
+            // Always create channelsList (for drop zone)
+            const channelsList = document.createElement('div');
+            channelsList.className = 'category-channels';
+
+            // Add drop zone functionality
+            this.setupDropZone(channelsList, category);
+
             if (!category.collapsed) {
-                const channelsList = document.createElement('div');
-                channelsList.className = 'category-channels';
-
-                // Add drop zone functionality
-                this.setupDropZone(channelsList, category);
-
                 (category.channels || []).forEach(channel => {
                     const channelEl = this.createChannelElement(channel, category);
                     channelsList.appendChild(channelEl);
                 });
-                categoryEl.appendChild(channelsList);
             }
+            categoryEl.appendChild(channelsList);
 
             container.appendChild(categoryEl);
         });
@@ -699,6 +703,34 @@ export class ServerManager {
             console.error('Failed to fetch members:', e);
             this.channelMembers[channelId] = [];
         }
+    }
+
+    setupDropZoneOnElement(element, category) {
+        element.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            if (this.draggedChannel && this.draggedChannel.fromCategory.id !== category.id) {
+                element.classList.add('drag-over');
+                e.dataTransfer.dropEffect = 'move';
+            }
+        });
+
+        element.addEventListener('dragleave', (e) => {
+            element.classList.remove('drag-over');
+        });
+
+        element.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            element.classList.remove('drag-over');
+
+            if (this.draggedChannel && this.draggedChannel.fromCategory.id !== category.id) {
+                await this.moveChannelToCategory(
+                    this.draggedChannel.channel,
+                    this.draggedChannel.fromCategory,
+                    category
+                );
+            }
+        });
     }
 
     setupDropZone(channelsList, category) {
