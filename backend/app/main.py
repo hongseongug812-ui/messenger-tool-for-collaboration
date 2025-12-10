@@ -1,4 +1,5 @@
 import os
+import sys
 import uuid
 import mimetypes
 import aiofiles
@@ -90,9 +91,21 @@ async def get_ai_response(prompt: str) -> str:
         return "AI 응답을 생성하는 중 오류가 발생했습니다."
 
 
+def strip_html_tags(html_content: str) -> str:
+  """HTML 태그를 제거하고 순수 텍스트만 반환"""
+  if not html_content:
+    return ""
+  # Remove HTML tags
+  text = re.sub(r'<[^>]+>', '', html_content)
+  # Replace &nbsp; and other HTML entities
+  text = text.replace('&nbsp;', ' ').replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
+  return text.strip()
+
+
 def extract_mentions(content: str) -> List[str]:
-  """메시지에서 @username 형식의 멘션 추출"""
-  return re.findall(r'@(\w+)', content)
+  """메시지에서 @username 형식의 멘션 추출 (HTML 태그 제거 후)"""
+  plain_text = strip_html_tags(content)
+  return re.findall(r'@(\w+)', plain_text)
 
 
 async def create_notification(user_id: str, notif_type: str, message_id: str, channel_id: str, content: str, trigger: str):
@@ -2388,6 +2401,13 @@ async def list_thread_replies(message_id: str):
     status_code=201,
 )
 async def create_message(channel_id: str, payload: MessageCreate):
+  try:
+    log_path = os.path.join(os.path.dirname(__file__), 'debug.log')
+    with open(log_path, 'a') as f:
+      f.write(f"[DEBUG] create_message called: channel_id={channel_id}, content={payload.content}\n")
+  except Exception as e:
+    print(f"[ERROR] Failed to write debug log: {e}", file=sys.stderr, flush=True)
+  print(f"[DEBUG] create_message called: channel_id={channel_id}, content={payload.content}", file=sys.stderr, flush=True)
   # Check if it's a DM channel
   if channel_id.startswith("dm_"):
     dm_channel = await dm_channels_col.find_one({"_id": channel_id})
@@ -2511,6 +2531,71 @@ async def create_message(channel_id: str, payload: MessageCreate):
       {"channelId": channel_id, "message": _message_to_response(message)},
       room=channel_id,
   )
+
+  # AI 챗봇 명령 처리 (@chatbot)
+  mentions = extract_mentions(payload.content)
+  print(f"[DEBUG] Mentions extracted: {mentions}", file=sys.stderr, flush=True)
+  print(f"[DEBUG] Original content: {payload.content}", file=sys.stderr, flush=True)
+  print(f"[DEBUG] Plain content: {strip_html_tags(payload.content)}", file=sys.stderr, flush=True)
+
+  if "chatbot" in mentions:
+      print(f"[DEBUG] @chatbot detected! Processing AI request...", file=sys.stderr, flush=True)
+      # HTML 태그 제거 후 @chatbot 제거하고 나머지 텍스트를 프롬프트로 사용
+      plain_content = strip_html_tags(payload.content)
+      prompt = plain_content.replace("@chatbot", "").strip()
+      print(f"[DEBUG] Prompt: {prompt}", file=sys.stderr, flush=True)
+      print(f"[DEBUG] Sender ID: {sender.id}", file=sys.stderr, flush=True)
+      if prompt and sender.id:
+          # RAG: 관련 문맥 검색
+          context = await get_relevant_context(prompt, sender.id)
+
+          full_prompt = f"""
+다음은 사용자의 질문과 관련된 최근 대화 내역입니다. 이를 참고하여 사용자의 질문에 답변하세요.
+대화 내역에 없는 내용은 일반적인 지식으로 답변하되, "대화 내역에는 없지만" 이라고 언급하세요.
+답변 시 **볼드체**나 *이탤릭체* 같은 마크다운 강조 표시를 절대 사용하지 말고, 평범한 텍스트로만 답변하세요.
+
+[대화 내역]
+{context}
+
+[사용자 질문]
+{prompt}
+"""
+          # 비동기로 AI 응답 생성 및 전송
+          ai_response_text = await get_ai_response(full_prompt)
+
+          ai_message_obj = Message(
+              id=f"msg_{uuid.uuid4().hex[:12]}",
+              channel_id=channel_id,
+              sender=Sender(
+                  id="ai_bot",
+                  name="AI Assistant",
+                  avatar="🤖"
+              ),
+              content=ai_response_text,
+              timestamp=_now(),
+              files=[],
+          )
+
+          # AI 메시지 저장 (암호화)
+          encrypted_ai_content = encrypt_text(ai_message_obj.content)
+          await messages_col.insert_one(
+              {
+                  "_id": ai_message_obj.id,
+                  "channel_id": channel_id,
+                  "sender": ai_message_obj.sender.model_dump(),
+                  "content": encrypted_ai_content,
+                  "timestamp": ai_message_obj.timestamp,
+                  "files": [],
+                  "thread_id": None,
+              }
+          )
+
+          await sio.emit(
+              "message",
+              {"channelId": channel_id, "message": _message_to_response(ai_message_obj)},
+              room=channel_id,
+          )
+
   return message
 
 
@@ -3225,8 +3310,9 @@ async def message(sid, data):
   # AI 챗봇 명령 처리 (@chatbot)
   mentions = extract_mentions(content)
   if "chatbot" in mentions:
-      # @chatbot 제거하고 나머지 텍스트를 프롬프트로 사용
-      prompt = content.replace("@chatbot", "").strip()
+      # HTML 태그 제거 후 @chatbot 제거하고 나머지 텍스트를 프롬프트로 사용
+      plain_content = strip_html_tags(content)
+      prompt = plain_content.replace("@chatbot", "").strip()
       if prompt:
           # RAG: 관련 문맥 검색
           context = await get_relevant_context(prompt, message_obj.sender.id)

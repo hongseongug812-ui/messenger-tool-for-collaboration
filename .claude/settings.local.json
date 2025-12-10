@@ -14,7 +14,14 @@
       "Bash(timeout:*)",
       "Bash(npm run build:win:*)",
       "Bash(test:*)",
-      "Bash(unset:*)"
+      "Bash(unset:*)",
+      "Bash(npm install:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(curl:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(cat:*)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []
