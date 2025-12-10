@@ -4,6 +4,7 @@ export class WebRTCManager {
         this.localStream = null;
         this.peers = {}; // sid -> RTCPeerConnection
         this.isCallActive = false;
+        this.isMinimized = false;
 
         // Audio Context for Visualizer
         this.audioContext = null;
@@ -298,30 +299,39 @@ export class WebRTCManager {
     createCallOverlay() {
         const overlay = document.createElement('div');
         overlay.id = 'call-overlay';
-        overlay.className = 'call-overlay';
+        overlay.className = 'call-overlay floating';
         overlay.style.display = 'none'; // Hidden by default
 
         overlay.innerHTML = `
-            <div class="call-header">
+            <div class="call-header" id="call-drag-handle">
                 <h3>Voice/Video Call</h3>
-                <span id="call-status-text" class="status-badge connecting">Connecting...</span>
+                <div class="call-header-controls">
+                    <span id="call-status-text" class="status-badge connecting">Connecting...</span>
+                    <button id="minimize-btn" class="header-control-btn" title="Minimize">
+                        <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4" />
+                        </svg>
+                    </button>
+                </div>
             </div>
-            <div id="video-grid" class="video-grid">
-                <!-- Videos will be injected here -->
-            </div>
-            <div class="visualizer-container">
-                <canvas id="audio-visualizer" width="300" height="50"></canvas>
-            </div>
-            <div class="call-controls">
-                <button id="mute-btn" class="control-btn" title="Toggle Mute">
-                    <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
-                </button>
-                <button id="video-btn" class="control-btn" title="Toggle Video">
-                    <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-                </button>
-                <button id="hangup-btn" class="control-btn danger" title="Hang Up">
-                     <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 8l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M5 3a2 2 0 00-2 2v1c0 8.284 6.716 15 15 15h1a2 2 0 002-2v-3.28a1 1 0 00-.684-.948l-4.493-1.498a1 1 0 00-1.21.502l-1.13 2.257a11.042 11.042 0 01-5.516-5.517l2.257-1.128a1 1 0 00.502-1.21L9.228 3.683A1 1 0 008.279 3H5z" /></svg>
-                </button>
+            <div id="call-content" class="call-content">
+                <div id="video-grid" class="video-grid">
+                    <!-- Videos will be injected here -->
+                </div>
+                <div class="visualizer-container">
+                    <canvas id="audio-visualizer" width="300" height="50"></canvas>
+                </div>
+                <div class="call-controls">
+                    <button id="mute-btn" class="control-btn" title="Toggle Mute">
+                        <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
+                    </button>
+                    <button id="video-btn" class="control-btn" title="Toggle Video">
+                        <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                    </button>
+                    <button id="hangup-btn" class="control-btn danger" title="Hang Up">
+                         <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 8l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M5 3a2 2 0 00-2 2v1c0 8.284 6.716 15 15 15h1a2 2 0 002-2v-3.28a1 1 0 00-.684-.948l-4.493-1.498a1 1 0 00-1.21.502l-1.13 2.257a11.042 11.042 0 01-5.516-5.517l2.257-1.128a1 1 0 00.502-1.21L9.228 3.683A1 1 0 008.279 3H5z" /></svg>
+                    </button>
+                </div>
             </div>
         `;
 
@@ -331,6 +341,10 @@ export class WebRTCManager {
         document.getElementById('hangup-btn').onclick = () => this.leaveCall();
         document.getElementById('mute-btn').onclick = (e) => this.toggleAudio(e.currentTarget);
         document.getElementById('video-btn').onclick = (e) => this.toggleVideo(e.currentTarget);
+        document.getElementById('minimize-btn').onclick = () => this.toggleMinimize();
+
+        // Make draggable
+        this.makeDraggable(overlay, document.getElementById('call-drag-handle'));
     }
 
     setupAudioVisualizer(stream) {
@@ -434,6 +448,74 @@ export class WebRTCManager {
             const track = this.localStream.getVideoTracks()[0];
             track.enabled = !track.enabled;
             btn.classList.toggle('off', !track.enabled);
+        }
+    }
+
+    toggleMinimize() {
+        this.isMinimized = !this.isMinimized;
+        const overlay = document.getElementById('call-overlay');
+        const content = document.getElementById('call-content');
+        const minimizeBtn = document.getElementById('minimize-btn');
+
+        if (this.isMinimized) {
+            overlay.classList.add('minimized');
+            content.style.display = 'none';
+            // 오른쪽 아래로 고정
+            overlay.style.top = 'auto';
+            overlay.style.left = 'auto';
+            overlay.style.right = '24px';
+            overlay.style.bottom = '24px';
+            minimizeBtn.innerHTML = `
+                <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                </svg>
+            `;
+            minimizeBtn.title = 'Maximize';
+        } else {
+            overlay.classList.remove('minimized');
+            content.style.display = 'flex';
+            // 최대화 시에도 오른쪽 아래 유지 (드래그 가능)
+            overlay.style.top = 'auto';
+            overlay.style.left = 'auto';
+            overlay.style.right = '24px';
+            overlay.style.bottom = '24px';
+            minimizeBtn.innerHTML = `
+                <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4" />
+                </svg>
+            `;
+            minimizeBtn.title = 'Minimize';
+        }
+    }
+
+    makeDraggable(element, handle) {
+        let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+
+        handle.onmousedown = dragMouseDown;
+
+        function dragMouseDown(e) {
+            e.preventDefault();
+            pos3 = e.clientX;
+            pos4 = e.clientY;
+            document.onmouseup = closeDragElement;
+            document.onmousemove = elementDrag;
+        }
+
+        function elementDrag(e) {
+            e.preventDefault();
+            pos1 = pos3 - e.clientX;
+            pos2 = pos4 - e.clientY;
+            pos3 = e.clientX;
+            pos4 = e.clientY;
+            element.style.top = (element.offsetTop - pos2) + "px";
+            element.style.left = (element.offsetLeft - pos1) + "px";
+            element.style.bottom = 'auto';
+            element.style.right = 'auto';
+        }
+
+        function closeDragElement() {
+            document.onmouseup = null;
+            document.onmousemove = null;
         }
     }
 }

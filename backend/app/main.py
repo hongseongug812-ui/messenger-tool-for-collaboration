@@ -3703,6 +3703,44 @@ async def call_leave(sid, data):
 
 
 # ========================================
+# Whiteboard Real-time Events
+# ========================================
+
+@sio.event
+async def whiteboard_draw(sid, data):
+    """실시간 화이트보드 그리기 이벤트"""
+    channel_id = data.get("channelId")
+    draw_data = data.get("drawData")
+    
+    print(f"[Whiteboard] Received draw event from {sid} for channel {channel_id}")
+
+    if not channel_id or not draw_data:
+        print(f"[Whiteboard] Missing data - channel_id: {channel_id}, draw_data: {draw_data}")
+        return
+
+    # 같은 채널의 다른 사용자들에게 전송 (본인 제외)
+    print(f"[Whiteboard] Broadcasting to room {channel_id}")
+    await sio.emit("whiteboard_draw", {
+        "channelId": channel_id,
+        "drawData": draw_data
+    }, room=channel_id, skip_sid=sid)
+
+
+@sio.event
+async def whiteboard_clear(sid, data):
+    """화이트보드 전체 지우기 이벤트"""
+    channel_id = data.get("channelId")
+
+    if not channel_id:
+        return
+
+    # 같은 채널의 다른 사용자들에게 전송 (본인 제외)
+    await sio.emit("whiteboard_clear", {
+        "channelId": channel_id
+    }, room=channel_id, skip_sid=sid)
+
+
+# ========================================
 # 검색 API
 # ========================================
 
