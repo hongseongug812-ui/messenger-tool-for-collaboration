@@ -54,6 +54,15 @@ export class WhiteboardManager {
         document.getElementById('wb-tool-line')?.addEventListener('click', () => this.setTool('line'));
         document.getElementById('wb-tool-rect')?.addEventListener('click', () => this.setTool('rect'));
         document.getElementById('wb-tool-circle')?.addEventListener('click', () => this.setTool('circle'));
+        document.getElementById('wb-tool-triangle')?.addEventListener('click', () => this.setTool('triangle'));
+
+        // Also bind via data-tool attribute
+        document.querySelectorAll('.whiteboard-toolbar [data-tool]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const tool = btn.dataset.tool === 'rectangle' ? 'rect' : btn.dataset.tool;
+                this.setTool(tool);
+            });
+        });
 
         // Color picker
         const colorPicker = document.getElementById('wb-color');
@@ -77,6 +86,7 @@ export class WhiteboardManager {
         document.getElementById('wb-undo')?.addEventListener('click', () => this.undo());
         document.getElementById('wb-redo')?.addEventListener('click', () => this.redo());
         document.getElementById('wb-clear')?.addEventListener('click', () => this.clear());
+        document.getElementById('wb-download')?.addEventListener('click', () => this.download());
 
         // Canvas events
         this.canvas.addEventListener('mousedown', (e) => this.startDraw(e));
@@ -114,7 +124,7 @@ export class WhiteboardManager {
         this.currentTool = tool;
 
         // Update active button
-        document.querySelectorAll('.tool-btn').forEach(btn => btn.classList.remove('active'));
+        document.querySelectorAll('.whiteboard-toolbar .tool-btn').forEach(btn => btn.classList.remove('active'));
         document.getElementById(`wb-tool-${tool}`)?.classList.add('active');
 
         // Update cursor
@@ -173,15 +183,33 @@ export class WhiteboardManager {
         } else {
             // For shapes, restore snapshot and draw preview
             this.ctx.putImageData(this.snapshot, 0, 0);
-            this.drawShape(this.startX, this.startY, x, y);
+            this.drawShape(this.startX, this.startY, x, y, false); // Don't emit during drag
+            this.lastX = x;
+            this.lastY = y;
         }
     }
 
-    stopDraw() {
+    stopDraw(e) {
         if (!this.isDrawing) return;
+
+        // For shapes, emit the final shape
+        if (this.currentTool !== 'pen' && this.currentTool !== 'eraser' && this.lastX !== undefined) {
+            this.emitDrawData({
+                tool: this.currentTool,
+                color: this.currentColor,
+                size: this.brushSize,
+                startX: this.startX,
+                startY: this.startY,
+                endX: this.lastX,
+                endY: this.lastY,
+                type: 'shape'
+            });
+        }
 
         this.isDrawing = false;
         this.ctx.closePath();
+        this.lastX = undefined;
+        this.lastY = undefined;
 
         // Save state for undo/redo
         this.saveState();
@@ -211,6 +239,17 @@ export class WhiteboardManager {
                 const radius = Math.sqrt(Math.pow(endX - startX, 2) + Math.pow(endY - startY, 2));
                 this.ctx.beginPath();
                 this.ctx.arc(startX, startY, radius, 0, 2 * Math.PI);
+                this.ctx.stroke();
+                break;
+
+            case 'triangle':
+                const triWidth = endX - startX;
+                const triHeight = endY - startY;
+                this.ctx.beginPath();
+                this.ctx.moveTo(startX + triWidth / 2, startY);
+                this.ctx.lineTo(startX, endY);
+                this.ctx.lineTo(endX, endY);
+                this.ctx.closePath();
                 this.ctx.stroke();
                 break;
         }
@@ -332,6 +371,13 @@ export class WhiteboardManager {
             this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
             this.saveState();
         }
+    }
+
+    download() {
+        const link = document.createElement('a');
+        link.download = `whiteboard_${new Date().toISOString().slice(0, 10)}.png`;
+        link.href = this.canvas.toDataURL('image/png');
+        link.click();
     }
 
     open() {

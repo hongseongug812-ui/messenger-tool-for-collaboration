@@ -1,0 +1,166 @@
+version: '3.8'
+
+services:
+  # MongoDB
+  mongodb:
+    image: mongo:7.0
+    container_name: messenger-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - messenger-network
+
+  # API Gateway (Port 8000)
+  gateway:
+    build:
+      context: .
+      dockerfile: services/gateway/Dockerfile
+    container_name: messenger-gateway
+    ports:
+      - "8000:8000"
+    environment:
+      - AUTH_SERVICE_URL=http://auth-service:8001
+      - USER_SERVICE_URL=http://user-service:8002
+      - MESSAGING_SERVICE_URL=http://messaging-service:8003
+      - SERVER_SERVICE_URL=http://server-service:8004
+      - NOTIFICATION_SERVICE_URL=http://notification-service:8005
+      - FILE_SERVICE_URL=http://file-service:8006
+      - AI_SERVICE_URL=http://ai-service:8007
+    depends_on:
+      - auth-service
+      - user-service
+      - messaging-service
+      - server-service
+      - notification-service
+      - file-service
+      - ai-service
+    networks:
+      - messenger-network
+
+  # Auth Service (Port 8001)
+  auth-service:
+    build:
+      context: .
+      dockerfile: services/auth-service/Dockerfile
+    container_name: messenger-auth
+    ports:
+      - "8001:8001"
+    environment:
+      - MONGO_URI=mongodb://mongodb:27017
+      - MONGO_DB=work_messenger
+      - SECRET_KEY=${SECRET_KEY}
+    depends_on:
+      - mongodb
+    networks:
+      - messenger-network
+
+  # User Service (Port 8002)
+  user-service:
+    build:
+      context: .
+      dockerfile: services/user-service/Dockerfile
+    container_name: messenger-user
+    ports:
+      - "8002:8002"
+    environment:
+      - MONGO_URI=mongodb://mongodb:27017
+      - MONGO_DB=work_messenger
+      - SECRET_KEY=${SECRET_KEY}
+    depends_on:
+      - mongodb
+    networks:
+      - messenger-network
+
+  # Messaging Service (Port 8003)
+  messaging-service:
+    build:
+      context: .
+      dockerfile: services/messaging-service/Dockerfile
+    container_name: messenger-messaging
+    ports:
+      - "8003:8003"
+    environment:
+      - MONGO_URI=mongodb://mongodb:27017
+      - MONGO_DB=work_messenger
+      - SECRET_KEY=${SECRET_KEY}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+    depends_on:
+      - mongodb
+    networks:
+      - messenger-network
+
+  # Server Service (Port 8004)
+  server-service:
+    build:
+      context: .
+      dockerfile: services/server-service/Dockerfile
+    container_name: messenger-server
+    ports:
+      - "8004:8004"
+    environment:
+      - MONGO_URI=mongodb://mongodb:27017
+      - MONGO_DB=work_messenger
+      - SECRET_KEY=${SECRET_KEY}
+    depends_on:
+      - mongodb
+    networks:
+      - messenger-network
+
+  # Notification Service (Port 8005)
+  notification-service:
+    build:
+      context: .
+      dockerfile: services/notification-service/Dockerfile
+    container_name: messenger-notification
+    ports:
+      - "8005:8005"
+    environment:
+      - MONGO_URI=mongodb://mongodb:27017
+      - MONGO_DB=work_messenger
+      - SECRET_KEY=${SECRET_KEY}
+    depends_on:
+      - mongodb
+    networks:
+      - messenger-network
+
+  # File Service (Port 8006)
+  file-service:
+    build:
+      context: .
+      dockerfile: services/file-service/Dockerfile
+    container_name: messenger-file
+    ports:
+      - "8006:8006"
+    environment:
+      - UPLOAD_DIR=/uploads
+    volumes:
+      - uploads_data:/uploads
+    networks:
+      - messenger-network
+
+  # AI Service (Port 8007)
+  ai-service:
+    build:
+      context: .
+      dockerfile: services/ai-service/Dockerfile
+    container_name: messenger-ai
+    ports:
+      - "8007:8007"
+    environment:
+      - MONGO_URI=mongodb://mongodb:27017
+      - SECRET_KEY=${SECRET_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+    depends_on:
+      - mongodb
+    networks:
+      - messenger-network
+
+volumes:
+  mongodb_data:
+  uploads_data:
+
+networks:
+  messenger-network:
+    driver: bridge

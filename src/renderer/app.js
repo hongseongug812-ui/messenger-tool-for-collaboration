@@ -5,6 +5,7 @@ import { ChatManager } from './modules/ChatManager.js';
 import { ServerManager } from './modules/ServerManager.js';
 import { WebRTCManager } from './modules/WebRTCManager.js';
 import { WhiteboardManager } from './modules/WhiteboardManager.js';
+import { NotepadManager } from './modules/NotepadManager.js';
 
 class WorkMessenger {
   constructor() {
@@ -18,6 +19,7 @@ class WorkMessenger {
     this.serverManager = new ServerManager(this);
     this.webRTCManager = new WebRTCManager(this);
     this.whiteboardManager = new WhiteboardManager(this);
+    this.notepadManager = new NotepadManager(this);
 
     this.init();
   }

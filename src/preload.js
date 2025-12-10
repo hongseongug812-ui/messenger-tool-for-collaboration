@@ -120,6 +120,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showNotification: (options) => ipcRenderer.invoke('show-notification', options),
   updateBadge: (count) => ipcRenderer.invoke('update-badge', count),
 
+  // 화면 캡처 소스 가져오기
+  getScreenSources: () => ipcRenderer.invoke('get-screen-sources'),
+
   // 이벤트 리스너
   onDndModeChanged: (callback) => {
     ipcRenderer.on('dnd-mode-changed', (event, enabled) => callback(enabled));

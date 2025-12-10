@@ -3741,6 +3741,46 @@ async def whiteboard_clear(sid, data):
 
 
 # ========================================
+# Notepad Real-time Events
+# ========================================
+
+# Store notepad content per channel
+notepad_content = {}
+
+@sio.event
+async def notepad_join(sid, data):
+    """채널 메모장 참가 - 현재 내용 전송"""
+    channel_id = data.get("channelId")
+    if not channel_id:
+        return
+    
+    content = notepad_content.get(channel_id, "")
+    await sio.emit("notepad_content", {
+        "channelId": channel_id,
+        "content": content
+    }, to=sid)
+
+
+@sio.event
+async def notepad_update(sid, data):
+    """실시간 메모장 업데이트 이벤트"""
+    channel_id = data.get("channelId")
+    content = data.get("content", "")
+    
+    if not channel_id:
+        return
+    
+    # 채널별 내용 저장
+    notepad_content[channel_id] = content
+    
+    # 같은 채널의 다른 사용자들에게 전송 (본인 제외)
+    await sio.emit("notepad_update", {
+        "channelId": channel_id,
+        "content": content
+    }, room=channel_id, skip_sid=sid)
+
+
+# ========================================
 # 검색 API
 # ========================================
 

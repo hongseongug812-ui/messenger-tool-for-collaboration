@@ -463,7 +463,12 @@ export class ChatManager {
 
     resetInput() {
         const input = document.getElementById('message-input');
-        if (input) input.innerHTML = '';
+        if (input) {
+            input.innerHTML = '';
+            input.textContent = '';
+            input.blur();
+            input.focus();
+        }
         this.attachedFiles = [];
         this.isTyping = false;
 

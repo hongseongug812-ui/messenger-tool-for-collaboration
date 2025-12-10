@@ -28,11 +28,31 @@ export class WebRTCManager {
             btnVoice.addEventListener('click', () => this.startCall());
         }
 
-        // Bind Screen Share Button
-        const btnScreen = document.getElementById('btn-screen-share');
-        if (btnScreen) {
-            btnScreen.addEventListener('click', () => this.startScreenShare());
-        }
+        // Screen share option buttons (from modal)
+        document.getElementById('share-entire-screen')?.addEventListener('click', () => {
+            this.hideScreenShareModal();
+            this.startScreenShare();
+        });
+
+        document.getElementById('share-window')?.addEventListener('click', () => {
+            this.hideScreenShareModal();
+            this.startScreenShare();
+        });
+
+        document.getElementById('share-tab')?.addEventListener('click', () => {
+            this.hideScreenShareModal();
+            this.startScreenShare();
+        });
+
+        // Stop share button
+        document.getElementById('btn-stop-share')?.addEventListener('click', () => {
+            this.leaveCall();
+        });
+    }
+
+    hideScreenShareModal() {
+        const modal = document.getElementById('screen-share-modal');
+        if (modal) modal.style.display = 'none';
     }
 
     async startCall() {
@@ -44,7 +64,134 @@ export class WebRTCManager {
     async startScreenShare() {
         if (this.isCallActive) return;
         this.updateConnectionState("Starting Screen Share...");
+
+        // Get available screen sources from Electron
+        if (window.electronAPI && window.electronAPI.getScreenSources) {
+            try {
+                const sources = await window.electronAPI.getScreenSources();
+                if (sources && sources.length > 0) {
+                    this.showSourcePicker(sources);
+                    return;
+                }
+            } catch (err) {
+                console.log('Using fallback getDisplayMedia:', err);
+            }
+        }
+
+        // Fallback to browser API
         await this.initiateMedia(true);
+    }
+
+    showSourcePicker(sources) {
+        // Create source picker modal
+        const existingPicker = document.getElementById('source-picker-modal');
+        if (existingPicker) existingPicker.remove();
+
+        const modal = document.createElement('div');
+        modal.id = 'source-picker-modal';
+        modal.className = 'modal-overlay';
+        modal.style.display = 'flex';
+
+        let sourcesHtml = sources.map(source => `
+            <div class="source-item" data-id="${source.id}">
+                <img src="${source.thumbnail}" alt="${source.name}" />
+                <span>${source.name.substring(0, 30)}</span>
+            </div>
+        `).join('');
+
+        modal.innerHTML = `
+            <div class="modal" style="max-width: 600px;">
+                <div class="modal-header">
+                    <h3>공유할 화면 선택</h3>
+                    <button class="icon-btn modal-close" id="close-source-picker">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                            <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="modal-body" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; max-height: 400px; overflow-y: auto;">
+                    ${sourcesHtml}
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(modal);
+
+        // Style source items
+        const style = document.createElement('style');
+        style.textContent = `
+            .source-item {
+                cursor: pointer;
+                border: 2px solid transparent;
+                border-radius: 8px;
+                padding: 8px;
+                text-align: center;
+                transition: all 0.2s;
+            }
+            .source-item:hover {
+                border-color: var(--primary);
+                background: var(--bg-tertiary);
+            }
+            .source-item img {
+                width: 100%;
+                border-radius: 4px;
+                margin-bottom: 5px;
+            }
+            .source-item span {
+                font-size: 12px;
+                color: var(--text-secondary);
+                display: block;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+        `;
+        document.head.appendChild(style);
+
+        // Event listeners
+        document.getElementById('close-source-picker').onclick = () => modal.remove();
+
+        modal.querySelectorAll('.source-item').forEach(item => {
+            item.onclick = async () => {
+                const sourceId = item.dataset.id;
+                modal.remove();
+                await this.startScreenShareWithSource(sourceId);
+            };
+        });
+    }
+
+    async startScreenShareWithSource(sourceId) {
+        const channelId = this.app.serverManager.currentChannel?.id;
+        if (!channelId) return;
+
+        try {
+            this.localStream = await navigator.mediaDevices.getUserMedia({
+                audio: false,
+                video: {
+                    mandatory: {
+                        chromeMediaSource: 'desktop',
+                        chromeMediaSourceId: sourceId
+                    }
+                }
+            });
+
+            this.isCallActive = true;
+            this.showCallOverlay();
+            this.addLocalVideo();
+            this.setupAudioVisualizer(this.localStream);
+
+            this.app.socketManager.emit('call_join', { currentChannelId: channelId });
+            this.updateConnectionState("Screen Sharing");
+
+            if (this.localStream.getVideoTracks().length > 0) {
+                this.localStream.getVideoTracks()[0].onended = () => {
+                    this.leaveCall();
+                };
+            }
+        } catch (err) {
+            console.error('Error starting screen share:', err);
+            this.updateConnectionState("Failed to share screen");
+        }
     }
 
     async initiateMedia(isScreen) {
@@ -53,7 +200,7 @@ export class WebRTCManager {
 
         try {
             if (isScreen) {
-                // Screen Sharing
+                // Screen Sharing (fallback)
                 this.localStream = await navigator.mediaDevices.getDisplayMedia({
                     video: true,
                     audio: true

@@ -75,6 +75,16 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, 'renderer/index.html'));
 
+  // CSP 오버라이드 - 이미지와 data URL 허용
+  mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': ["default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: http: https:; connect-src 'self' ws: wss: http: https:;"]
+      }
+    });
+  });
+
   // 준비되면 표시 (깜빡임 방지)
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
@@ -213,6 +223,25 @@ function registerIpcHandlers() {
       app.dock.setBadge(count > 0 ? count.toString() : '');
     }
     // Windows에서는 오버레이 아이콘 사용 가능
+  });
+
+  // 화면 캡처 소스 가져오기
+  ipcMain.handle('get-screen-sources', async () => {
+    const { desktopCapturer } = require('electron');
+    try {
+      const sources = await desktopCapturer.getSources({
+        types: ['screen', 'window'],
+        thumbnailSize: { width: 150, height: 150 }
+      });
+      return sources.map(source => ({
+        id: source.id,
+        name: source.name,
+        thumbnail: source.thumbnail.toDataURL()
+      }));
+    } catch (error) {
+      console.error('[Main] Failed to get screen sources:', error);
+      return [];
+    }
   });
 }
 
