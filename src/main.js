@@ -80,8 +80,8 @@ function createWindow() {
     mainWindow.show();
   });
 
-  // 개발 모드에서 DevTools 열기 (디버깅용)
-  mainWindow.webContents.openDevTools();
+  // 개발 모드에서 DevTools 열기 (필요시 F12로 수동 열기)
+  // mainWindow.webContents.openDevTools();
 
   // 창 닫기 시 앱 종료
   mainWindow.on('close', () => {
