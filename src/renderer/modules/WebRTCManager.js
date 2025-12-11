@@ -46,8 +46,13 @@ export class WebRTCManager {
 
         // Stop share button
         document.getElementById('btn-stop-share')?.addEventListener('click', () => {
-            this.leaveCall();
+            this.stopScreenShare();
         });
+    }
+
+    stopScreenShare() {
+        this.leaveCall();
+        this.hideScreenSharePreview();
     }
 
     hideScreenShareModal() {
@@ -62,23 +67,35 @@ export class WebRTCManager {
     }
 
     async startScreenShare() {
-        if (this.isCallActive) return;
+        console.log('[WebRTC] startScreenShare called');
+
+        if (this.isCallActive) {
+            console.log('[WebRTC] Already in call, returning');
+            return;
+        }
+
         this.updateConnectionState("Starting Screen Share...");
 
         // Get available screen sources from Electron
         if (window.electronAPI && window.electronAPI.getScreenSources) {
             try {
+                console.log('[WebRTC] Getting screen sources via electronAPI...');
                 const sources = await window.electronAPI.getScreenSources();
+                console.log('[WebRTC] Got sources:', sources?.length);
+
                 if (sources && sources.length > 0) {
                     this.showSourcePicker(sources);
                     return;
                 }
             } catch (err) {
-                console.log('Using fallback getDisplayMedia:', err);
+                console.log('[WebRTC] Error getting sources:', err);
             }
+        } else {
+            console.log('[WebRTC] electronAPI.getScreenSources not available');
         }
 
         // Fallback to browser API
+        console.log('[WebRTC] Using fallback getDisplayMedia');
         await this.initiateMedia(true);
     }
 
@@ -165,6 +182,8 @@ export class WebRTCManager {
         if (!channelId) return;
 
         try {
+            console.log('[WebRTC] Starting screen share with source:', sourceId);
+
             this.localStream = await navigator.mediaDevices.getUserMedia({
                 audio: false,
                 video: {
@@ -176,8 +195,9 @@ export class WebRTCManager {
             });
 
             this.isCallActive = true;
-            this.showCallOverlay();
-            this.addLocalVideo();
+
+            // 화면 공유 모달에 미리보기 표시
+            this.showScreenSharePreview();
             this.setupAudioVisualizer(this.localStream);
 
             this.app.socketManager.emit('call_join', { currentChannelId: channelId });
@@ -185,26 +205,34 @@ export class WebRTCManager {
 
             if (this.localStream.getVideoTracks().length > 0) {
                 this.localStream.getVideoTracks()[0].onended = () => {
-                    this.leaveCall();
+                    this.stopScreenShare();
                 };
             }
         } catch (err) {
-            console.error('Error starting screen share:', err);
+            console.error('[WebRTC] Error starting screen share:', err);
             this.updateConnectionState("Failed to share screen");
         }
     }
 
     async initiateMedia(isScreen) {
         const channelId = this.app.serverManager.currentChannel?.id;
-        if (!channelId) return;
+        if (!channelId) {
+            console.error('[WebRTC] No channel selected');
+            return;
+        }
 
         try {
+            console.log('[WebRTC] initiateMedia called, isScreen:', isScreen);
+
             if (isScreen) {
                 // Screen Sharing (fallback)
                 this.localStream = await navigator.mediaDevices.getDisplayMedia({
                     video: true,
                     audio: true
                 });
+
+                // 화면 공유 모달에 미리보기 표시
+                this.showScreenSharePreview();
             } else {
                 // Webcam
                 this.localStream = await navigator.mediaDevices.getUserMedia({
@@ -214,25 +242,98 @@ export class WebRTCManager {
             }
 
             this.isCallActive = true;
-            this.showCallOverlay();
-            this.addLocalVideo();
+
+            if (!isScreen) {
+                // 음성/영상 통화는 call overlay에 표시
+                this.showCallOverlay();
+                this.addLocalVideo();
+            }
+
             this.setupAudioVisualizer(this.localStream);
 
             // Join call room
             this.app.socketManager.emit('call_join', { currentChannelId: channelId });
-            this.updateConnectionState("Connected");
+            this.updateConnectionState(isScreen ? "Screen Sharing" : "Connected");
 
             // Handle stream stop (e.g. user clicks "Stop Sharing")
             if (this.localStream.getVideoTracks().length > 0) {
                 this.localStream.getVideoTracks()[0].onended = () => {
                     this.leaveCall();
+                    this.hideScreenSharePreview();
                 };
             }
 
         } catch (err) {
-            console.error('Error accessing media:', err);
+            console.error('[WebRTC] Error accessing media:', err);
             this.updateConnectionState("Failed to access media");
-            // alert('Media access failed or cancelled.');
+        }
+    }
+
+    showScreenSharePreview() {
+        // 화면 공유 모달 닫기
+        const modal = document.getElementById('screen-share-modal');
+        if (modal) modal.style.display = 'none';
+
+        // 디스코드 스타일: 채팅 영역 상단에 화면 공유 표시
+        const container = document.getElementById('screen-share-container');
+        const video = document.getElementById('shared-screen-video');
+        const usernameSpan = document.getElementById('screen-share-username');
+
+        if (container) {
+            container.style.display = 'flex';
+        }
+
+        if (video && this.localStream) {
+            video.srcObject = this.localStream;
+            video.play().catch(e => console.error('[WebRTC] Video play error:', e));
+        }
+
+        if (usernameSpan) {
+            const userName = this.app.auth?.currentUser?.name || '나';
+            usernameSpan.textContent = `${userName}님이 화면을 공유 중입니다`;
+        }
+
+        // 공유 중지 버튼 이벤트 바인딩
+        const endShareBtn = document.getElementById('btn-end-share');
+        if (endShareBtn) {
+            endShareBtn.onclick = () => this.stopScreenShare();
+        }
+
+        // 전체 화면 버튼 이벤트 바인딩
+        const fullscreenBtn = document.getElementById('btn-fullscreen-share');
+        if (fullscreenBtn) {
+            fullscreenBtn.onclick = () => this.toggleFullscreen();
+        }
+    }
+
+    hideScreenSharePreview() {
+        // 디스코드 스타일: 채팅 영역의 화면 공유 컨테이너 숨기기
+        const container = document.getElementById('screen-share-container');
+        const video = document.getElementById('shared-screen-video');
+
+        if (container) {
+            container.style.display = 'none';
+            container.classList.remove('fullscreen');
+        }
+
+        if (video) {
+            video.srcObject = null;
+        }
+
+        // 이전 화면 공유 모달도 닫기
+        const modal = document.getElementById('screen-share-modal');
+        const options = document.querySelector('.screen-share-options');
+        const preview = document.getElementById('screen-preview');
+
+        if (modal) modal.style.display = 'none';
+        if (options) options.style.display = 'grid';
+        if (preview) preview.style.display = 'none';
+    }
+
+    toggleFullscreen() {
+        const container = document.getElementById('screen-share-container');
+        if (container) {
+            container.classList.toggle('fullscreen');
         }
     }
 

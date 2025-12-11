@@ -339,6 +339,36 @@
               </div>
             </div>
 
+            <!-- 화면 공유 영역 (디스코드 스타일) -->
+            <div class="screen-share-container" id="screen-share-container" style="display: none;">
+              <div class="screen-share-header">
+                <div class="screen-share-info">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                    <rect x="2" y="3" width="20" height="14" rx="2" stroke="currentColor" stroke-width="1.5" />
+                    <path d="M8 21h8M12 17v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                  </svg>
+                  <span id="screen-share-username">화면 공유 중</span>
+                </div>
+                <div class="screen-share-controls">
+                  <button class="icon-btn" id="btn-fullscreen-share" title="전체 화면">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                      <path
+                        d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"
+                        stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                  </button>
+                  <button class="icon-btn danger" id="btn-end-share" title="공유 중지">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                      <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div class="screen-share-video-wrapper">
+                <video id="shared-screen-video" autoplay playsinline></video>
+              </div>
+            </div>
+
             <!-- 메시지 영역 -->
             <div class="messages-container" id="messages-container" style="display: none;">
               <div class="messages" id="messages">
