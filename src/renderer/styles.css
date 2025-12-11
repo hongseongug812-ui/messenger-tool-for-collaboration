@@ -7090,3 +7090,1223 @@ body {
 }
 
 /* ======================================== Discord-style screen share container ======================================== */ .screen-share-container { background: var(--bg-primary); border-bottom: 1px solid var(--border); display: flex; flex-direction: column; } .screen-share-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: var(--bg-secondary); border-bottom: 1px solid var(--border); } .screen-share-info { display: flex; align-items: center; gap: 10px; color: var(--accent); font-weight: 500; font-size: 14px; } .screen-share-controls { display: flex; align-items: center; gap: 8px; } .screen-share-controls .icon-btn.danger { background: var(--error); color: white; border-radius: 50%; } .screen-share-video-wrapper { position: relative; background: #000; display: flex; align-items: center; justify-content: center; max-height: 400px; overflow: hidden; } .screen-share-video-wrapper video { width: 100%; height: auto; max-height: 400px; object-fit: contain; } .screen-share-container.fullscreen { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 1000; } .screen-share-container.fullscreen .screen-share-video-wrapper { flex: 1; max-height: none; } .screen-share-container.fullscreen video { max-height: none; height: 100%; }
+
+/* ========================================
+   노션 스타일 메모장
+   ======================================== */
+.notion-notepad-modal {
+  display: flex;
+  flex-direction: column;
+}
+
+.notion-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+}
+
+.notion-title-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+}
+
+.notion-icon {
+  font-size: 24px;
+  cursor: pointer;
+}
+
+.notion-page-title {
+  border: none;
+  background: transparent;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+  outline: none;
+  flex: 1;
+}
+
+.notion-page-title::placeholder {
+  color: var(--text-tertiary);
+}
+
+.notion-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.notepad-sync-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.sync-dot {
+  width: 8px;
+  height: 8px;
+  background: var(--online);
+  border-radius: 50%;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.notion-editor-container {
+  flex: 1;
+  padding: 0 20px 20px;
+  overflow-y: auto;
+}
+
+.notion-hint {
+  padding: 10px 16px;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.notion-blocks {
+  min-height: 200px;
+}
+
+.notion-block {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 4px;
+  padding: 3px 0;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+
+.notion-block:hover {
+  background: var(--bg-hover);
+}
+
+.block-handle {
+  opacity: 0;
+  padding: 4px;
+  color: var(--text-tertiary);
+  cursor: grab;
+  font-size: 12px;
+  user-select: none;
+  transition: opacity 0.15s;
+}
+
+.notion-block:hover .block-handle {
+  opacity: 1;
+}
+
+.block-content {
+  flex: 1;
+  outline: none;
+  padding: 4px 8px;
+  border-radius: 4px;
+  line-height: 1.6;
+  min-height: 1.6em;
+}
+
+.block-content:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-placeholder);
+}
+
+.block-content:focus {
+  background: var(--bg-tertiary);
+}
+
+/* 제목 스타일 */
+.notion-block-h1 .block-content {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 16px 0 8px;
+}
+
+.notion-block-h2 .block-content {
+  font-size: 22px;
+  font-weight: 600;
+  margin: 12px 0 6px;
+}
+
+.notion-block-h3 .block-content {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 8px 0 4px;
+}
+
+/* 목록 스타일 */
+.block-bullet::before {
+  content: '';
+  margin-right: 8px;
+  color: var(--text-secondary);
+}
+
+.block-numbered::before {
+  content: attr(data-number) '.';
+  margin-right: 8px;
+  color: var(--text-secondary);
+  min-width: 20px;
+}
+
+/* 할일 스타일 */
+.block-todo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.block-todo input[type=checkbox] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.todo-text {
+  flex: 1;
+  outline: none;
+}
+
+.todo-text.completed {
+  text-decoration: line-through;
+  color: var(--text-tertiary);
+}
+
+/* 코드 블록 */
+.block-code {
+  background: var(--bg-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 12px 16px;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+/* 인용 */
+.block-quote {
+  border-left: 3px solid var(--accent);
+  padding-left: 16px;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+/* 구분선 */
+.block-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 16px 0;
+  width: 100%;
+}
+
+/* 콜아웃 */
+.block-callout {
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  padding: 12px 16px;
+  border-left: 4px solid var(--accent);
+}
+
+/* 새 블록 추가 버튼 */
+.notion-add-block {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  border-radius: 4px;
+  margin-top: 8px;
+  transition: all 0.15s;
+}
+
+.notion-add-block:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.add-icon {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  font-size: 16px;
+}
+
+/* 슬래시 메뉴 */
+.notion-slash-menu {
+  position: absolute;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  width: 280px;
+  max-height: 350px;
+  overflow-y: auto;
+  z-index: 1000;
+}
+
+.slash-menu-header {
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.slash-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.slash-menu-item:hover,
+.slash-menu-item.selected {
+  background: var(--bg-hover);
+}
+
+.slash-icon {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.slash-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.slash-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.slash-desc {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* ========================================
+   디스코드 스타일 통화 컨트롤 바
+   ======================================== */
+.call-control-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border-top: 1px solid var(--border);
+  margin-top: auto;
+}
+
+.call-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.call-status-dot {
+  width: 10px;
+  height: 10px;
+  background: var(--online);
+  border-radius: 50%;
+  animation: pulse 2s infinite;
+}
+
+.call-details {
+  display: flex;
+  flex-direction: column;
+}
+
+.call-channel-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--online);
+}
+
+.call-timer {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+.call-controls {
+  display: flex;
+  gap: 6px;
+}
+
+.call-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.call-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.call-btn.active {
+  background: var(--accent);
+  color: white;
+}
+
+.call-btn.muted {
+  background: var(--error);
+  color: white;
+}
+
+.call-btn.danger {
+  background: var(--error);
+  color: white;
+}
+
+.call-btn.danger:hover {
+  background: #dc2626;
+}
+
+/* ========================================
+   디스코드 스타일 음성 채널
+   ======================================== */
+.channel-item.voice-channel {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.channel-item.voice-channel .channel-icon.voice {
+  color: var(--text-secondary);
+}
+
+.channel-item.voice-channel.active .channel-icon.voice {
+  color: var(--online);
+}
+
+.voice-participants {
+  width: 100%;
+  padding-left: 28px;
+  margin-top: 4px;
+}
+
+.voice-participant {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  margin-bottom: 2px;
+}
+
+.voice-participant:hover {
+  background: var(--bg-hover);
+}
+
+.participant-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.participant-name {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* 음성 채널에 연결 중일 때 */
+.channel-item.voice-channel.connected {
+  background: var(--accent-subtle);
+}
+
+.channel-item.voice-channel.connected .channel-name {
+  color: var(--accent);
+}
+
+/* ========================================
+   채널 타입 선택 다이얼로그
+   ======================================== */
+.channel-type-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.channel-type-btn {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  background: var(--bg-tertiary);
+  border: 2px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: left;
+  color: var(--text-primary);
+}
+
+.channel-type-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
+.channel-type-btn svg {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.type-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.type-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.type-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* ========================================
+   말하는 사람 표시 (초록색 테두리)
+   ======================================== */
+.video-container.speaking {
+  border: 3px solid var(--online);
+  box-shadow: 0 0 15px rgba(16, 185, 129, 0.4);
+  animation: speaking-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes speaking-pulse {
+  0%, 100% { box-shadow: 0 0 10px rgba(16, 185, 129, 0.3); }
+  50% { box-shadow: 0 0 20px rgba(16, 185, 129, 0.6); }
+}
+
+.voice-participant.speaking {
+  background: var(--accent-subtle);
+}
+
+.voice-participant.speaking .participant-avatar {
+  border: 2px solid var(--online);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+}
+
+/* 비디오 컨테이너 기본 스타일 */
+.video-container {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg-tertiary);
+  border: 3px solid transparent;
+  transition: all 0.2s;
+}
+
+.video-container video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.video-label {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.7);
+  border-radius: 4px;
+  font-size: 12px;
+  color: white;
+}
+
+/* ========================================
+   디스코드 스타일 통화 오버레이 개선
+   ======================================== */
+.call-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.call-header-left svg {
+  color: var(--online);
+}
+
+.call-header-left h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.call-controls.discord-style {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  padding: 16px;
+  background: var(--bg-tertiary);
+  border-radius: 12px;
+}
+
+.call-controls.discord-style .control-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: none;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.call-controls.discord-style .control-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.call-controls.discord-style .control-btn.active {
+  background: var(--accent);
+  color: white;
+}
+
+.call-controls.discord-style .control-btn.muted {
+  background: var(--error);
+  color: white;
+}
+
+.call-controls.discord-style .control-btn.danger {
+  background: var(--error);
+  color: white;
+}
+
+.call-controls.discord-style .control-btn.danger:hover {
+  background: #dc2626;
+}
+
+/* 비디오 그리드 개선 */
+.video-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  padding: 16px;
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* ========================================
+   통화 컨트롤 바 사용자 아바타
+   ======================================== */
+.call-user-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--accent-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+  border: 3px solid transparent;
+  transition: all 0.15s;
+}
+
+.call-user-avatar.speaking {
+  border-color: var(--online);
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.6);
+  animation: avatar-speaking 1s ease-in-out infinite;
+}
+
+@keyframes avatar-speaking {
+  0%, 100% { box-shadow: 0 0 8px rgba(16, 185, 129, 0.4); }
+  50% { box-shadow: 0 0 16px rgba(16, 185, 129, 0.8); }
+}
+
+/* ========================================
+   카테고리 헤더 디스코드 스타일
+   ======================================== */
+.category-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.category-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+
+.category-add-btn {
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  opacity: 0;
+  transition: all 0.15s;
+}
+
+.category-header:hover .category-add-btn {
+  opacity: 1;
+}
+
+.category-add-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+/* ========================================
+   음성 채널 참가자 목록 (디스코드 스타일)
+   ======================================== */
+.channel-item.voice-channel {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.channel-header-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.voice-participants-list {
+  padding-left: 28px;
+  padding-top: 4px;
+}
+
+.voice-participant {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  margin-bottom: 2px;
+  transition: background 0.15s;
+}
+
+.voice-participant:hover {
+  background: var(--bg-hover);
+}
+
+.participant-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  border: 2px solid transparent;
+  transition: all 0.15s;
+}
+
+.voice-participant.speaking .participant-avatar {
+  border-color: var(--online);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+}
+
+.participant-name {
+  font-size: 13px;
+  color: var(--text-secondary);
+  flex: 1;
+}
+
+.screen-share-icon {
+  font-size: 14px;
+  margin-left: auto;
+}
+
+/* ========================================
+   화면 공유 상태 표시
+   ======================================== */
+.call-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.screen-share-status {
+  font-size: 11px;
+  color: var(--online);
+  background: rgba(16, 185, 129, 0.15);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+/* 화면 공유 중 배지 */
+.screen-share-badge {
+  font-size: 10px;
+  color: var(--online);
+  background: rgba(16, 185, 129, 0.2);
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: auto;
+  font-weight: 500;
+}
+
+/* ========================================
+   디스코드 스타일 화면 공유 미리보기
+   ======================================== */
+.screen-share-container {
+  position: relative;
+  background: var(--bg-tertiary);
+  border-radius: 12px;
+  overflow: hidden;
+  margin: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  transition: all 0.3s ease;
+}
+
+.screen-share-container.minimized {
+  position: fixed;
+  bottom: 80px;
+  right: 20px;
+  width: 320px;
+  height: 200px;
+  z-index: 999;
+  border-radius: 8px;
+}
+
+.screen-share-container.fullscreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  margin: 0;
+  z-index: 1000;
+  border-radius: 0;
+}
+
+.screen-share-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: rgba(0, 0, 0, 0.5);
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+}
+
+.screen-share-username {
+  font-size: 13px;
+  color: white;
+  font-weight: 500;
+}
+
+.screen-share-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.share-control-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.share-control-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.share-control-btn.danger:hover {
+  background: var(--error);
+}
+
+.screen-share-video-wrapper {
+  width: 100%;
+  height: 400px;
+  background: #000;
+}
+
+.screen-share-container.minimized .screen-share-video-wrapper {
+  height: 100%;
+}
+
+.screen-share-container.fullscreen .screen-share-video-wrapper {
+  height: 100vh;
+}
+
+#shared-screen-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* ========================================
+   통화 컨트롤 바 스타일
+   ======================================== */
+.call-control-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  margin-top: auto;
+}
+
+.call-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.call-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.call-channel-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--online);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.call-timer {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.call-controls {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.call-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.call-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.call-btn.muted {
+  background: var(--error);
+  color: white;
+}
+
+.call-btn.active {
+  background: var(--online);
+  color: white;
+}
+
+.call-btn.danger {
+  background: var(--error);
+  color: white;
+}
+
+.call-btn.danger:hover {
+  background: #dc2626;
+}
+
+/* 컨트롤 바 추가 스타일 수정 */
+.call-control-bar .call-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.call-control-bar .call-user-avatar {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+}
+
+/* 화면 공유 전체화면 ESC 힌트 */
+.screen-share-container.fullscreen .screen-share-header::after {
+  content: 'ESC를 눌러 전체화면 종료';
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-left: 12px;
+}
+
+/* 화면 공유 축소 시 헤더 숨김 */
+.screen-share-container.minimized .screen-share-header {
+  padding: 6px 8px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.screen-share-container.minimized:hover .screen-share-header {
+  opacity: 1;
+}
+
+.screen-share-container.minimized .screen-share-username {
+  display: none;
+}
+
+/* 전체화면 수정 - 채팅 영역 내에서만 확대 */
+.screen-share-container.fullscreen {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+  z-index: 100 !important;
+  border-radius: 0 !important;
+}
+
+.screen-share-container.fullscreen .screen-share-video-wrapper {
+  height: calc(100% - 50px) !important;
+}
+
+/* 채팅 영역에 relative 추가 */
+.chat-content {
+  position: relative;
+}
+
+/* 화면 공유 기본 상태 - 채팅 영역 전체 채움 */
+.screen-share-container {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  z-index: 50 !important;
+}
+
+.screen-share-video-wrapper {
+  height: calc(100% - 50px) !important;
+}
+
+/* ========================================
+   화면 공유 및 컨트롤 바 최종 스타일  
+   ======================================== */
+
+/* 화면 공유 컨테이너 - 기본 상태 (채팅 영역 전체) */
+#screen-share-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #000;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 화면 공유 축소 상태 */
+#screen-share-container.minimized {
+  position: fixed !important;
+  top: auto !important;
+  left: auto !important;
+  bottom: 100px !important;
+  right: 20px !important;
+  width: 320px !important;
+  height: 180px !important;
+  border-radius: 8px !important;
+  z-index: 999 !important;
+}
+
+#screen-share-container.minimized .screen-share-header {
+  padding: 4px 8px;
+}
+
+#screen-share-container.minimized .screen-share-username {
+  font-size: 11px;
+}
+
+#screen-share-container.minimized .share-control-btn {
+  width: 24px;
+  height: 24px;
+}
+
+/* 화면 공유 헤더 */
+#screen-share-container .screen-share-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 10;
+}
+
+/* 화면 공유 비디오 */
+#screen-share-container .screen-share-video-wrapper {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#screen-share-container #shared-screen-video {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+/* 통화 컨트롤 바 - 디스코드 스타일 */
+#call-control-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+}
+
+#call-control-bar .call-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+#call-control-bar .call-user-avatar {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  border-radius: 50%;
+  background: var(--accent-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+#call-control-bar .call-details {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+#call-control-bar .call-channel-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--online);
+}
+
+#call-control-bar .call-timer {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+#call-control-bar .call-controls {
+  display: flex;
+  gap: 4px;
+}
+
+#call-control-bar .call-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.1s;
+}
+
+#call-control-bar .call-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+#call-control-bar .call-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+#call-control-bar .call-btn.muted,
+#call-control-bar .call-btn.danger {
+  background: var(--error);
+  color: white;
+}

@@ -115,6 +115,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   minimizeWindow: () => ipcRenderer.invoke('window-minimize'),
   maximizeWindow: () => ipcRenderer.invoke('window-maximize'),
   closeWindow: () => ipcRenderer.invoke('window-close'),
+  toggleFullscreen: () => ipcRenderer.invoke('window-fullscreen'),
+  isFullscreen: () => ipcRenderer.invoke('window-is-fullscreen'),
 
   // 알림
   showNotification: (options) => ipcRenderer.invoke('show-notification', options),

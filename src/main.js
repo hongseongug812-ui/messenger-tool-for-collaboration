@@ -198,6 +198,17 @@ function registerIpcHandlers() {
     mainWindow.hide();
   });
 
+  // 전체화면 토글
+  ipcMain.handle('window-fullscreen', () => {
+    const isFullscreen = mainWindow.isFullScreen();
+    mainWindow.setFullScreen(!isFullscreen);
+    return !isFullscreen;
+  });
+
+  // 현재 전체화면 상태 확인
+  ipcMain.handle('window-is-fullscreen', () => {
+    return mainWindow.isFullScreen();
+  });
   // 알림 보내기
   ipcMain.handle('show-notification', (event, { title, body, icon }) => {
     if (config.pushEnabled && Notification.isSupported()) {

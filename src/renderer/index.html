@@ -123,7 +123,7 @@
           <rect y="5" width="12" height="2" fill="currentColor" />
         </svg>
       </button>
-      <button class="titlebar-btn" id="btn-maximize" title="최대화">
+      <button class="titlebar-btn" id="btn-maximize" title="전체화면 (F11)">
         <svg width="12" height="12" viewBox="0 0 12 12">
           <rect x="1" y="1" width="10" height="10" stroke="currentColor" stroke-width="1.5" fill="none" />
         </svg>
@@ -213,16 +213,6 @@
                 <path d="M12 8v4M12 16h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
               </svg>
             </button>
-            <button class="icon-btn" id="btn-new-category" title="카테고리 추가" style="display: none;">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <path d="M3 7h18M3 12h18M3 17h18" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-              </svg>
-            </button>
-            <button class="icon-btn" id="btn-new-channel" title="채널 추가" style="display: none;">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-              </svg>
-            </button>
           </div>
         </div>
 
@@ -236,6 +226,53 @@
 
         <div class="channels-container" id="channels-container">
           <!-- 카테고리와 채널들이 동적으로 추가됨 -->
+        </div>
+
+        <!-- 디스코드 스타일 통화 컨트롤 바 -->
+        <div class="call-control-bar" id="call-control-bar" style="display: none;">
+          <div class="call-info">
+            <div class="call-user-avatar" id="call-user-avatar">
+              <span id="call-user-initial">U</span>
+            </div>
+            <div class="call-details">
+              <span class="call-channel-name" id="call-channel-name">음성 연결됨</span>
+              <div class="call-status-row">
+                <span class="call-timer" id="call-timer">00:00</span>
+                <span class="screen-share-status" id="screen-share-status" style="display: none;">🖥️ 화면 공유 중</span>
+              </div>
+            </div>
+          </div>
+          <div class="call-controls">
+            <button class="call-btn" id="btn-toggle-mic" title="마이크 음소거">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" stroke="currentColor"
+                  stroke-width="1.5" />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" stroke="currentColor" stroke-width="1.5"
+                  stroke-linecap="round" />
+              </svg>
+            </button>
+            <button class="call-btn" id="btn-toggle-headset" title="헤드셋 음소거">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <path d="M3 18v-6a9 9 0 0 1 18 0v6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                <path
+                  d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3v5zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3v5z"
+                  stroke="currentColor" stroke-width="1.5" />
+              </svg>
+            </button>
+            <button class="call-btn" id="btn-screen-share-call" title="화면 공유">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <rect x="2" y="3" width="20" height="14" rx="2" stroke="currentColor" stroke-width="1.5" />
+                <path d="M8 21h8M12 17v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+              </svg>
+            </button>
+            <button class="call-btn danger" id="btn-end-call" title="통화 종료">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M23 16.01c0 .52-.42.94-.94.94H17a1 1 0 0 1-1-1v-2.65c0-.47-.32-.87-.78-.97A10.04 10.04 0 0 0 12 12c-1.08 0-2.13.11-3.12.33-.46.1-.88.5-.88.97v2.65a1 1 0 0 1-1 1H1.95c-.52 0-.95-.42-.95-.94C1 9.93 5.93 5 12 5s11 4.93 11 11.01z"
+                  stroke="currentColor" stroke-width="1.5" />
+              </svg>
+            </button>
+          </div>
         </div>
       </section>
 
@@ -273,20 +310,6 @@
                 </div>
               </div>
               <div class="chat-header-actions">
-                <button class="icon-btn" id="btn-voice-chat" title="음성채팅 시작">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" stroke="currentColor"
-                      stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-                    <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" stroke="currentColor" stroke-width="1.5"
-                      stroke-linecap="round" stroke-linejoin="round" />
-                  </svg>
-                </button>
-                <button class="icon-btn" id="btn-screen-share" title="화면 공유">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                    <rect x="2" y="3" width="20" height="14" rx="2" stroke="currentColor" stroke-width="1.5" />
-                    <path d="M8 21h8M12 17v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-                  </svg>
-                </button>
                 <button class="icon-btn" id="btn-whiteboard" title="화이트보드">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
                     <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" stroke-width="1.5" />
@@ -589,12 +612,6 @@
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                 <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" />
-              </svg>
-            </button>
-            <button class="icon-btn" title="음성/화상 통화" id="start-call-btn" onclick="app.webRTCManager.startCall()">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M23 7l-7 5 7 5V7z" />
-                <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
               </svg>
             </button>
             <div class="search-bar">
@@ -1307,59 +1324,129 @@
     </div>
   </div>
 
-
-  <!-- 공유 메모장 모달 -->
+  <!-- 공유 메모장 모달 (노션 스타일) -->
   <div class="modal-overlay" id="notepad-modal" style="display: none;">
-    <div class="modal notepad-modal" style="width: 900px; max-width: 95vw;">
-      <div class="modal-header">
-        <h3>📝 공유 메모장</h3>
-        <span class="notepad-sync-status" id="notepad-sync-status">실시간 동기화 중</span>
-        <button class="icon-btn modal-close" id="close-notepad">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-            <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-          </svg>
-        </button>
-      </div>
-      <div class="notepad-toolbar">
-        <div class="toolbar-group">
-          <button class="tool-btn" id="np-bold" title="굵게 (Ctrl+B)"><b>B</b></button>
-          <button class="tool-btn" id="np-italic" title="기울임 (Ctrl+I)"><i>I</i></button>
-          <button class="tool-btn" id="np-underline" title="밑줄 (Ctrl+U)"><u>U</u></button>
-          <button class="tool-btn" id="np-strike" title="취소선"><s>S</s></button>
+    <div class="modal notion-notepad-modal" style="width: 900px; max-width: 95vw; height: 80vh;">
+      <div class="modal-header notion-header">
+        <div class="notion-title-section">
+          <span class="notion-icon">📝</span>
+          <input type="text" class="notion-page-title" id="notepad-title" placeholder="제목 없음">
         </div>
-        <div class="toolbar-divider"></div>
-        <div class="toolbar-group">
-          <button class="tool-btn" id="np-h1" title="제목 1">H1</button>
-          <button class="tool-btn" id="np-h2" title="제목 2">H2</button>
-        </div>
-        <div class="toolbar-divider"></div>
-        <div class="toolbar-group">
-          <button class="tool-btn" id="np-ul" title="글머리 기호">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-              <path d="M8 6h13M8 12h13M8 18h13M3 6h0M3 12h0M3 18h0" stroke="currentColor" stroke-width="2"
-                stroke-linecap="round" />
+        <div class="notion-header-actions">
+          <span class="notepad-sync-status" id="notepad-sync-status">
+            <span class="sync-dot"></span>
+            실시간 동기화 중
+          </span>
+          <button class="icon-btn" id="btn-notepad-fullscreen" title="전체화면">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"
+                stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
           </button>
-          <button class="tool-btn" id="np-ol" title="번호 매기기">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-              <path d="M10 6h11M10 12h11M10 18h11M4 6h1v-2M3 8h3M4 12h2M3 17v-1h3l-2 3" stroke="currentColor"
-                stroke-width="1.5" stroke-linecap="round" />
+          <button class="icon-btn modal-close" id="close-notepad">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
             </svg>
           </button>
         </div>
-        <div class="toolbar-divider"></div>
-        <div class="toolbar-group">
-          <button class="tool-btn" id="np-code" title="코드">&lt;/&gt;</button>
-          <button class="tool-btn" id="np-link" title="링크">🔗</button>
+      </div>
+      <div class="notion-editor-container">
+        <!-- 블록 추가 안내 -->
+        <div class="notion-hint" id="notion-hint">
+          <span>💡 "/" 를 입력하면 블록 종류를 선택할 수 있습니다</span>
         </div>
-        <div class="toolbar-divider"></div>
-        <div class="toolbar-group">
-          <button class="tool-btn danger" id="np-clear" title="전체 지우기">🗑️</button>
+        <!-- 블록 에디터 영역 -->
+        <div class="notion-blocks" id="notion-blocks">
+          <!-- 블록들이 동적으로 추가됨 -->
+        </div>
+        <!-- 새 블록 추가 버튼 -->
+        <div class="notion-add-block" id="add-block-btn">
+          <span class="add-icon">+</span>
+          <span>새 블록 추가 또는 "/" 입력</span>
         </div>
       </div>
-      <div class="modal-body notepad-body">
-        <div class="notepad-editor" id="notepad-editor" contenteditable="true"
-          placeholder="여기에 메모를 작성하세요... 실시간으로 팀원들과 공유됩니다."></div>
+      <!-- 슬래시 명령 팝업 -->
+      <div class="notion-slash-menu" id="slash-menu" style="display: none;">
+        <div class="slash-menu-header">기본 블록</div>
+        <div class="slash-menu-item" data-type="text">
+          <span class="slash-icon">📝</span>
+          <div class="slash-info">
+            <span class="slash-title">텍스트</span>
+            <span class="slash-desc">일반 텍스트를 작성합니다</span>
+          </div>
+        </div>
+        <div class="slash-menu-item" data-type="h1">
+          <span class="slash-icon">H1</span>
+          <div class="slash-info">
+            <span class="slash-title">제목 1</span>
+            <span class="slash-desc">큰 제목</span>
+          </div>
+        </div>
+        <div class="slash-menu-item" data-type="h2">
+          <span class="slash-icon">H2</span>
+          <div class="slash-info">
+            <span class="slash-title">제목 2</span>
+            <span class="slash-desc">중간 제목</span>
+          </div>
+        </div>
+        <div class="slash-menu-item" data-type="h3">
+          <span class="slash-icon">H3</span>
+          <div class="slash-info">
+            <span class="slash-title">제목 3</span>
+            <span class="slash-desc">작은 제목</span>
+          </div>
+        </div>
+        <div class="slash-menu-header">리스트</div>
+        <div class="slash-menu-item" data-type="bullet">
+          <span class="slash-icon">•</span>
+          <div class="slash-info">
+            <span class="slash-title">글머리 기호 목록</span>
+            <span class="slash-desc">간단한 글머리 기호 목록</span>
+          </div>
+        </div>
+        <div class="slash-menu-item" data-type="numbered">
+          <span class="slash-icon">1.</span>
+          <div class="slash-info">
+            <span class="slash-title">번호 매기기 목록</span>
+            <span class="slash-desc">번호가 매겨진 목록</span>
+          </div>
+        </div>
+        <div class="slash-menu-item" data-type="todo">
+          <span class="slash-icon">☐</span>
+          <div class="slash-info">
+            <span class="slash-title">할 일 목록</span>
+            <span class="slash-desc">체크박스가 있는 할 일 목록</span>
+          </div>
+        </div>
+        <div class="slash-menu-header">고급</div>
+        <div class="slash-menu-item" data-type="code">
+          <span class="slash-icon">&lt;/&gt;</span>
+          <div class="slash-info">
+            <span class="slash-title">코드 블록</span>
+            <span class="slash-desc">코드를 작성합니다</span>
+          </div>
+        </div>
+        <div class="slash-menu-item" data-type="quote">
+          <span class="slash-icon">❝</span>
+          <div class="slash-info">
+            <span class="slash-title">인용</span>
+            <span class="slash-desc">인용문을 작성합니다</span>
+          </div>
+        </div>
+        <div class="slash-menu-item" data-type="divider">
+          <span class="slash-icon">—</span>
+          <div class="slash-info">
+            <span class="slash-title">구분선</span>
+            <span class="slash-desc">콘텐츠를 나눕니다</span>
+          </div>
+        </div>
+        <div class="slash-menu-item" data-type="callout">
+          <span class="slash-icon">💡</span>
+          <div class="slash-info">
+            <span class="slash-title">콜아웃</span>
+            <span class="slash-desc">강조 박스</span>
+          </div>
+        </div>
       </div>
     </div>
   </div>

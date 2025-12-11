@@ -60,7 +60,7 @@ class WorkMessenger {
       this.auth.showAuthScreen();
     }
 
-    // 글로벌 이벤트 바인딩 (필요한 경우)
+    // 글로벌 이벤트 바인딩
     this.bindGlobalEvents();
 
     // Hide Initial Loading Screen
@@ -273,20 +273,36 @@ class WorkMessenger {
     this.globalEventsBound = true;
 
     // Window Controls
+    const btnFullscreen = document.getElementById('btn-fullscreen');
     const btnMinimize = document.getElementById('btn-minimize');
     const btnMaximize = document.getElementById('btn-maximize');
     const btnClose = document.getElementById('btn-close');
 
+    if (btnFullscreen) btnFullscreen.addEventListener('click', () => window.electronAPI.toggleFullscreen());
     if (btnMinimize) btnMinimize.addEventListener('click', () => window.electronAPI.minimizeWindow());
-    if (btnMaximize) btnMaximize.addEventListener('click', () => window.electronAPI.maximizeWindow());
+    // 최대화 버튼을 전체화면 토글로 변경
+    if (btnMaximize) btnMaximize.addEventListener('click', () => window.electronAPI.toggleFullscreen());
     if (btnClose) btnClose.addEventListener('click', () => window.electronAPI.closeWindow());
 
     // Keyboard Shortcuts
-    document.addEventListener('keydown', (e) => {
-      // ESC to close modals
+    document.addEventListener('keydown', async (e) => {
+      // ESC: 전체화면 해제 또는 모달 닫기
       if (e.key === 'Escape') {
-        const modals = document.querySelectorAll('.modal-overlay');
-        modals.forEach(modal => modal.style.display = 'none');
+        // 먼저 전체화면인지 확인
+        const isFullscreen = await window.electronAPI.isFullscreen();
+        if (isFullscreen) {
+          window.electronAPI.toggleFullscreen();
+        } else {
+          // 전체화면이 아니면 모달 닫기
+          const modals = document.querySelectorAll('.modal-overlay');
+          modals.forEach(modal => modal.style.display = 'none');
+        }
+      }
+
+      // F11 for fullscreen toggle
+      if (e.key === 'F11') {
+        e.preventDefault();
+        window.electronAPI.toggleFullscreen();
       }
 
       // Ctrl+T or Cmd+T for Theme Toggle

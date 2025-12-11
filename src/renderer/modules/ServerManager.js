@@ -107,7 +107,12 @@ export class ServerManager {
             return;
         }
 
-        const channelName = await this.app.uiManager.showInputDialog('새 채널 이름을 입력하세요:');
+        // 채널 타입 선택 다이얼로그
+        const channelType = await this.showChannelTypeDialog();
+        if (!channelType) return;
+
+        const placeholder = channelType === 'voice' ? '음성 채널 이름' : '텍스트 채널 이름';
+        const channelName = await this.app.uiManager.showInputDialog(`${placeholder}을 입력하세요:`);
         if (!channelName || !channelName.trim()) return;
 
         // Use the first category by default (or we could let user select)
@@ -118,7 +123,7 @@ export class ServerManager {
                 method: 'POST',
                 body: JSON.stringify({
                     name: channelName.trim(),
-                    type: 'text'
+                    type: channelType
                 })
             });
 
@@ -131,12 +136,14 @@ export class ServerManager {
                 for (const category of this.currentServer.categories || []) {
                     const newChannel = category.channels?.find(ch => ch.id === newChannelId);
                     if (newChannel) {
-                        await this.selectChannel(newChannel);
+                        if (channelType === 'text') {
+                            await this.selectChannel(newChannel);
+                        }
                         break;
                     }
                 }
 
-                this.app.uiManager.showToast('채널이 생성되었습니다.', 'success');
+                this.app.uiManager.showToast(`${channelType === 'voice' ? '음성' : '텍스트'} 채널이 생성되었습니다.`, 'success');
             }
         } catch (error) {
             console.error('채널 생성 실패:', error);
@@ -144,6 +151,101 @@ export class ServerManager {
         }
     }
 
+    // 채널 타입 선택 다이얼로그
+    showChannelTypeDialog() {
+        return new Promise((resolve) => {
+            const overlay = document.createElement('div');
+            overlay.className = 'modal-overlay';
+            overlay.style.display = 'flex';
+
+            overlay.innerHTML = `
+                <div class="modal" style="width: 400px;">
+                    <div class="modal-header">
+                        <h3>채널 타입 선택</h3>
+                    </div>
+                    <div class="modal-body" style="padding: 20px;">
+                        <div class="channel-type-options">
+                            <button class="channel-type-btn" data-type="text">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                                    <path d="M4 11a9 9 0 0 1 9 9M4 4a16 16 0 0 1 16 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                </svg>
+                                <div class="type-info">
+                                    <span class="type-name">텍스트 채널</span>
+                                    <span class="type-desc">메시지, 이미지, GIF, 이모지 공유</span>
+                                </div>
+                            </button>
+                            <button class="channel-type-btn" data-type="voice">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" stroke="currentColor" stroke-width="1.5"/>
+                                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                    <path d="M12 19v4M8 23h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                </svg>
+                                <div class="type-info">
+                                    <span class="type-name">음성 채널</span>
+                                    <span class="type-desc">음성, 영상, 화면 공유</span>
+                                </div>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="modal-actions">
+                        <button class="btn-cancel" id="cancel-type">취소</button>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(overlay);
+
+            overlay.querySelectorAll('.channel-type-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    overlay.remove();
+                    resolve(btn.dataset.type);
+                });
+            });
+
+            overlay.querySelector('#cancel-type').addEventListener('click', () => {
+                overlay.remove();
+                resolve(null);
+            });
+
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) {
+                    overlay.remove();
+                    resolve(null);
+                }
+            });
+        });
+    }
+
+    // 특정 카테고리에 채널 추가
+    async showCreateChannelInCategory(category) {
+        if (!this.currentServer) return;
+
+        // 채널 타입 선택
+        const channelType = await this.showChannelTypeDialog();
+        if (!channelType) return;
+
+        const placeholder = channelType === 'voice' ? '음성 채널 이름' : '텍스트 채널 이름';
+        const channelName = await this.app.uiManager.showInputDialog(`${placeholder}을 입력하세요:`);
+        if (!channelName || !channelName.trim()) return;
+
+        try {
+            const response = await this.app.apiRequest(`/servers/${this.currentServer.id}/categories/${category.id}/channels`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    name: channelName.trim(),
+                    type: channelType
+                })
+            });
+
+            if (response) {
+                await this.loadServerData();
+                this.app.uiManager.showToast(`${channelType === 'voice' ? '음성' : '텍스트'} 채널이 생성되었습니다.`, 'success');
+            }
+        } catch (error) {
+            console.error('채널 생성 실패:', error);
+            this.app.uiManager.showToast('채널 생성에 실패했습니다.', 'error');
+        }
+    }
     async showDMList() {
         // Show DM list modal
         console.log('Opening DM list...');
@@ -513,8 +615,6 @@ export class ServerManager {
         });
 
         document.getElementById('server-name').textContent = server.name;
-        document.getElementById('btn-new-category').style.display = 'flex';
-        document.getElementById('btn-new-channel').style.display = 'flex';
 
         this.renderChannelList();
 
@@ -542,13 +642,27 @@ export class ServerManager {
             const header = document.createElement('div');
             header.className = 'category-header';
             header.innerHTML = `
-        <span class="category-arrow">${category.collapsed ? '▶' : '▼'}</span>
-        <span class="category-name">${category.name}</span>
-      `;
-            header.addEventListener('click', () => {
+                <div class="category-left">
+                    <span class="category-arrow">${category.collapsed ? '▶' : '▼'}</span>
+                    <span class="category-name">${category.name}</span>
+                </div>
+                <button class="category-add-btn" title="채널 추가">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                        <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </button>
+            `;
+
+            // 카테고리 접기/펼치기
+            header.querySelector('.category-left').addEventListener('click', () => {
                 category.collapsed = !category.collapsed;
-                this.renderChannelList(); // Re-render to toggle
-                // TODO: Save collapsed state to server/local storage
+                this.renderChannelList();
+            });
+
+            // 채널 추가 버튼
+            header.querySelector('.category-add-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.showCreateChannelInCategory(category);
             });
 
             // Add drop zone to header for collapsed categories
@@ -573,29 +687,108 @@ export class ServerManager {
 
             container.appendChild(categoryEl);
         });
+
+        // 채널 영역 우클릭 시 카테고리 생성 메뉴
+        container.addEventListener('contextmenu', (e) => {
+            // 채널이나 카테고리 위에서 우클릭한 경우 무시
+            if (e.target.closest('.channel-item') || e.target.closest('.category-header')) {
+                return;
+            }
+            e.preventDefault();
+            this.showChannelAreaContextMenu(e);
+        });
+    }
+
+    // 채널 영역 컨텍스트 메뉴 (카테고리 생성)
+    showChannelAreaContextMenu(e) {
+        // 기존 메뉴 제거
+        document.querySelectorAll('.channel-area-menu').forEach(m => m.remove());
+
+        const menu = document.createElement('div');
+        menu.className = 'context-menu channel-area-menu';
+        menu.style.cssText = `
+            position: fixed;
+            top: ${e.clientY}px;
+            left: ${e.clientX}px;
+            display: block;
+            z-index: 1000;
+        `;
+
+        menu.innerHTML = `
+            <button class="context-menu-item" data-action="create-category">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                    <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+                <span>카테고리 만들기</span>
+            </button>
+        `;
+
+        document.body.appendChild(menu);
+
+        menu.querySelector('[data-action="create-category"]').addEventListener('click', () => {
+            menu.remove();
+            this.showCreateCategoryDialog();
+        });
+
+        // 외부 클릭 시 닫기
+        const closeMenu = (e) => {
+            if (!menu.contains(e.target)) {
+                menu.remove();
+                document.removeEventListener('click', closeMenu);
+            }
+        };
+        setTimeout(() => document.addEventListener('click', closeMenu), 0);
     }
 
     createChannelElement(channel, category) {
         const div = document.createElement('div');
         const unreadData = this.unreadCounts[channel.id];
         const hasUnread = unreadData && unreadData.count > 0;
+        const isVoice = channel.type === 'voice';
 
-        div.className = `channel-item${this.currentChannel?.id === channel.id ? ' active' : ''}${hasUnread ? ' unread' : ''}`;
+        div.className = `channel-item${this.currentChannel?.id === channel.id ? ' active' : ''}${hasUnread ? ' unread' : ''}${isVoice ? ' voice-channel' : ''}`;
         div.dataset.channelId = channel.id;
         div.dataset.categoryId = category.id;
+        div.dataset.channelType = channel.type || 'text';
         div.draggable = true;
 
-        div.innerHTML = `
-        <svg class="channel-icon" width="18" height="18" viewBox="0 0 24 24" fill="none">
-           ${channel.is_private ?
-                '<path d="M12 15v2m0 0v2m0-2h2m-2 0H8m4-11a4 4 0 0 1 4 4v3H8V8a4 4 0 0 1 4-4z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>' :
-                '<path d="M4 11a9 9 0 0 1 9 9M4 4a16 16 0 0 1 16 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>'}
-        </svg>
-        <span class="channel-name">${channel.name}</span>
-        ${hasUnread ? `<span class="unread-badge">${unreadData.count}</span>` : ''}
-      `;
+        // 채널 타입에 따른 아이콘
+        let channelIcon;
+        if (isVoice) {
+            channelIcon = `<svg class="channel-icon voice" width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" stroke="currentColor" stroke-width="1.5"/>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                <path d="M12 19v4M8 23h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>`;
+        } else if (channel.is_private) {
+            channelIcon = `<svg class="channel-icon" width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <path d="M12 15v2m0 0v2m0-2h2m-2 0H8m4-11a4 4 0 0 1 4 4v3H8V8a4 4 0 0 1 4-4z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>`;
+        } else {
+            channelIcon = `<svg class="channel-icon" width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <path d="M4 11a9 9 0 0 1 9 9M4 4a16 16 0 0 1 16 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>`;
+        }
 
-        div.addEventListener('click', () => this.selectChannel(channel));
+        div.innerHTML = `
+            <div class="channel-header-row">
+                ${channelIcon}
+                <span class="channel-name">${channel.name}</span>
+                ${hasUnread ? `<span class="unread-badge">${unreadData.count}</span>` : ''}
+            </div>
+            ${isVoice ? `<div class="voice-participants-list" id="voice-participants-${channel.id}"></div>` : ''}
+        `;
+
+        div.addEventListener('click', () => {
+            if (isVoice) {
+                // 음성 채널: 자동으로 통화 참여
+                this.joinVoiceChannel(channel);
+            } else {
+                // 텍스트 채널: 일반 선택
+                this.selectChannel(channel);
+            }
+        });
+
         div.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             this.showChannelContextMenu(e, channel);
@@ -618,6 +811,122 @@ export class ServerManager {
         });
 
         return div;
+    }
+
+    // 음성 채널 참여
+    async joinVoiceChannel(channel) {
+        console.log('[ServerManager] Joining voice channel:', channel.name);
+
+        // 현재 채널 선택
+        this.currentChannel = channel;
+
+        // 기존 활성 상태 제거
+        document.querySelectorAll('.channel-item.voice-channel').forEach(el => {
+            el.classList.remove('active', 'connected');
+        });
+
+        // 새 채널 활성화
+        const channelEl = document.querySelector(`[data-channel-id="${channel.id}"]`);
+        if (channelEl) {
+            channelEl.classList.add('active', 'connected');
+        }
+
+        // WebRTC로 통화 시작
+        if (this.app.webRTCManager) {
+            await this.app.webRTCManager.startCall();
+        }
+
+        // 현재 사용자를 참가자로 추가
+        const currentUser = this.app.auth?.currentUser;
+        if (currentUser) {
+            this.addVoiceParticipant(channel.id, {
+                id: currentUser.id,
+                name: currentUser.name,
+                isScreenSharing: false
+            });
+        }
+    }
+
+    // 음성 채널 참가자 추가
+    addVoiceParticipant(channelId, user) {
+        const container = document.getElementById(`voice-participants-${channelId}`);
+        if (!container) return;
+
+        // 이미 있는지 확인
+        if (container.querySelector(`[data-user-id="${user.id}"]`)) return;
+
+        const participantEl = document.createElement('div');
+        participantEl.className = 'voice-participant';
+        participantEl.dataset.userId = user.id;
+
+        participantEl.innerHTML = `
+            <div class="participant-avatar">${user.name ? user.name[0] : 'U'}</div>
+            <span class="participant-name">${user.name || 'User'}</span>
+            ${user.isScreenSharing ? '<span class="screen-share-icon" title="화면 공유 중">🖥️</span>' : ''}
+        `;
+
+        container.appendChild(participantEl);
+    }
+
+    // 음성 채널 참가자 제거
+    removeVoiceParticipant(channelId, userId) {
+        const container = document.getElementById(`voice-participants-${channelId}`);
+        if (!container) return;
+
+        const participantEl = container.querySelector(`[data-user-id="${userId}"]`);
+        if (participantEl) {
+            participantEl.remove();
+        }
+    }
+
+    // 참가자 화면 공유 상태 업데이트
+    updateParticipantScreenShare(channelId, userId, isSharing) {
+        console.log('[ServerManager] updateParticipantScreenShare called:', channelId, userId, isSharing);
+
+        const container = document.getElementById(`voice-participants-${channelId}`);
+        console.log('[ServerManager] container:', container);
+        if (!container) return;
+
+        const participantEl = container.querySelector(`[data-user-id="${userId}"]`);
+        console.log('[ServerManager] participantEl:', participantEl);
+
+        if (participantEl) {
+            const existingBadge = participantEl.querySelector('.screen-share-badge');
+            if (isSharing && !existingBadge) {
+                const badge = document.createElement('span');
+                badge.className = 'screen-share-badge';
+                badge.textContent = '공유중';
+                participantEl.appendChild(badge);
+                console.log('[ServerManager] Added screen share badge');
+            } else if (!isSharing && existingBadge) {
+                existingBadge.remove();
+                console.log('[ServerManager] Removed screen share badge');
+            }
+        }
+    }
+
+    // 음성 채널 참가자 업데이트 (전체)
+    updateVoiceParticipants(channelId, participants) {
+        const container = document.getElementById(`voice-participants-${channelId}`);
+        if (!container) return;
+
+        container.innerHTML = '';
+
+        if (participants.length === 0) return;
+
+        participants.forEach(p => {
+            const participantEl = document.createElement('div');
+            participantEl.className = 'voice-participant';
+            participantEl.dataset.userId = p.id || 'unknown';
+
+            participantEl.innerHTML = `
+                <div class="participant-avatar">${p.name ? p.name[0] : 'U'}</div>
+                <span class="participant-name">${p.name || 'User'}</span>
+                ${p.isScreenSharing ? '<span class="screen-share-icon" title="화면 공유 중">🖥️</span>' : ''}
+            `;
+
+            container.appendChild(participantEl);
+        });
     }
 
     async selectChannel(channel) {
