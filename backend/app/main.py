@@ -3709,18 +3709,20 @@ async def call_leave(sid, data):
 @sio.event
 async def whiteboard_draw(sid, data):
     """실시간 화이트보드 그리기 이벤트"""
+    server_id = data.get("serverId")
     channel_id = data.get("channelId")
     draw_data = data.get("drawData")
     
-    print(f"[Whiteboard] Received draw event from {sid} for channel {channel_id}")
+    print(f"[Whiteboard] Received draw event from {sid} for server {server_id} channel {channel_id}")
 
-    if not channel_id or not draw_data:
-        print(f"[Whiteboard] Missing data - channel_id: {channel_id}, draw_data: {draw_data}")
+    if not server_id or not channel_id or not draw_data:
+        print(f"[Whiteboard] Missing data - server_id: {server_id}, channel_id: {channel_id}, draw_data: {draw_data}")
         return
 
     # 같은 채널의 다른 사용자들에게 전송 (본인 제외)
     print(f"[Whiteboard] Broadcasting to room {channel_id}")
     await sio.emit("whiteboard_draw", {
+        "serverId": server_id,
         "channelId": channel_id,
         "drawData": draw_data
     }, room=channel_id, skip_sid=sid)
@@ -3729,13 +3731,15 @@ async def whiteboard_draw(sid, data):
 @sio.event
 async def whiteboard_clear(sid, data):
     """화이트보드 전체 지우기 이벤트"""
+    server_id = data.get("serverId")
     channel_id = data.get("channelId")
 
-    if not channel_id:
+    if not server_id or not channel_id:
         return
 
     # 같은 채널의 다른 사용자들에게 전송 (본인 제외)
     await sio.emit("whiteboard_clear", {
+        "serverId": server_id,
         "channelId": channel_id
     }, room=channel_id, skip_sid=sid)
 
@@ -3744,18 +3748,22 @@ async def whiteboard_clear(sid, data):
 # Notepad Real-time Events
 # ========================================
 
-# Store notepad content per channel
+# Store notepad content per server+channel (key: "{server_id}:{channel_id}")
 notepad_content = {}
 
 @sio.event
 async def notepad_join(sid, data):
     """채널 메모장 참가 - 현재 내용 전송"""
+    server_id = data.get("serverId")
     channel_id = data.get("channelId")
-    if not channel_id:
+    if not server_id or not channel_id:
         return
     
-    content = notepad_content.get(channel_id, "")
+    # 서버+채널 조합 키
+    content_key = f"{server_id}:{channel_id}"
+    content = notepad_content.get(content_key, "")
     await sio.emit("notepad_content", {
+        "serverId": server_id,
         "channelId": channel_id,
         "content": content
     }, to=sid)
@@ -3764,17 +3772,20 @@ async def notepad_join(sid, data):
 @sio.event
 async def notepad_update(sid, data):
     """실시간 메모장 업데이트 이벤트"""
+    server_id = data.get("serverId")
     channel_id = data.get("channelId")
     content = data.get("content", "")
     
-    if not channel_id:
+    if not server_id or not channel_id:
         return
     
-    # 채널별 내용 저장
-    notepad_content[channel_id] = content
+    # 서버+채널 조합 키로 저장
+    content_key = f"{server_id}:{channel_id}"
+    notepad_content[content_key] = content
     
     # 같은 채널의 다른 사용자들에게 전송 (본인 제외)
     await sio.emit("notepad_update", {
+        "serverId": server_id,
         "channelId": channel_id,
         "content": content
     }, room=channel_id, skip_sid=sid)

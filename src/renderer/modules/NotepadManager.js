@@ -120,8 +120,9 @@ export class NotepadManager {
     }
 
     syncContent() {
+        const serverId = this.app.serverManager.currentServer?.id;
         const channelId = this.app.serverManager.currentChannel?.id;
-        if (!channelId) return;
+        if (!serverId || !channelId) return;
 
         const content = this.editor.innerHTML;
         if (content === this.lastSyncedContent) return;
@@ -129,6 +130,7 @@ export class NotepadManager {
         this.lastSyncedContent = content;
 
         this.app.socketManager.emit('notepad_update', {
+            serverId: serverId,
             channelId: channelId,
             content: content,
             cursor: this.getCursorPosition()
@@ -136,8 +138,9 @@ export class NotepadManager {
     }
 
     handleRemoteUpdate(data) {
+        const serverId = this.app.serverManager.currentServer?.id;
         const channelId = this.app.serverManager.currentChannel?.id;
-        if (data.channelId !== channelId) return;
+        if (data.serverId !== serverId || data.channelId !== channelId) return;
 
         if (data.content === this.editor.innerHTML) return;
 
@@ -157,8 +160,9 @@ export class NotepadManager {
     }
 
     handleContentLoad(data) {
+        const serverId = this.app.serverManager.currentServer?.id;
         const channelId = this.app.serverManager.currentChannel?.id;
-        if (data.channelId !== channelId) return;
+        if (data.serverId !== serverId || data.channelId !== channelId) return;
 
         this.isRemoteUpdate = true;
         this.editor.innerHTML = data.content || '';
@@ -224,9 +228,10 @@ export class NotepadManager {
             }
 
             // Request current content
+            const serverId = this.app.serverManager.currentServer?.id;
             const channelId = this.app.serverManager.currentChannel?.id;
-            if (channelId) {
-                this.app.socketManager.emit('notepad_join', { channelId });
+            if (serverId && channelId) {
+                this.app.socketManager.emit('notepad_join', { serverId, channelId });
             }
         }
     }

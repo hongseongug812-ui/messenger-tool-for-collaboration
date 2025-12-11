@@ -246,8 +246,8 @@ export class UIManager {
         // 화이트보드
         const btnWhiteboard = document.getElementById('btn-whiteboard');
         btnWhiteboard?.addEventListener('click', () => {
-            this.showModal('whiteboard-modal');
-            this.initWhiteboard();
+            // WhiteboardManager.open()이 모달 표시와 서버별 캔버스 관리를 처리
+            this.app.whiteboardManager.open();
         });
 
         // 메시지 다운로드
@@ -265,7 +265,8 @@ export class UIManager {
         // 화이트보드 모달 닫기
         const closeWhiteboard = document.getElementById('close-whiteboard');
         closeWhiteboard?.addEventListener('click', () => {
-            this.hideModal('whiteboard-modal');
+            // WhiteboardManager.close()가 상태 저장과 모달 닫기를 처리
+            this.app.whiteboardManager.close();
         });
 
         // 설정 버튼

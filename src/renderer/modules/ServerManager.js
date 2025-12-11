@@ -501,6 +501,9 @@ export class ServerManager {
     }
 
     selectServer(server) {
+        // 화이트보드에 서버 변경 알림 (현재 상태 저장)
+        this.app.whiteboardManager?.onChannelChange();
+
         this.currentServer = server;
         this.currentChannel = null;
 
@@ -619,6 +622,9 @@ export class ServerManager {
 
     async selectChannel(channel) {
         if (this.currentChannel?.id === channel.id) return;
+
+        // 화이트보드에 채널 변경 알림 (현재 상태 저장)
+        this.app.whiteboardManager?.onChannelChange();
 
         this.currentChannel = channel;
 

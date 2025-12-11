@@ -19,6 +19,20 @@ export class WhiteboardManager {
         this.maxHistory = 50;
 
         this.isInitialized = false;
+
+        // 서버/채널별 캔버스 상태 저장 (key: "serverId:channelId")
+        this.canvasStates = {};
+        this.currentStateKey = null;
+    }
+
+    // 채널 변경 시 호출 - 현재 상태 저장
+    onChannelChange() {
+        if (this.currentStateKey && this.canvas && this.ctx) {
+            this.canvasStates[this.currentStateKey] = this.canvas.toDataURL();
+            console.log('[WhiteboardManager] Saved state on channel change for:', this.currentStateKey);
+        }
+        // 키 초기화 - 다음 open()에서 새로 설정됨
+        this.currentStateKey = null;
     }
 
     initialize() {
@@ -123,9 +137,15 @@ export class WhiteboardManager {
     setTool(tool) {
         this.currentTool = tool;
 
-        // Update active button
+        // Update active button - find by data-tool attribute
         document.querySelectorAll('.whiteboard-toolbar .tool-btn').forEach(btn => btn.classList.remove('active'));
-        document.getElementById(`wb-tool-${tool}`)?.classList.add('active');
+
+        // Handle rectangle vs rect difference
+        const toolAttr = tool === 'rect' ? 'rectangle' : tool;
+        const activeBtn = document.querySelector(`.whiteboard-toolbar [data-tool="${toolAttr}"]`);
+        if (activeBtn) {
+            activeBtn.classList.add('active');
+        }
 
         // Update cursor
         if (tool === 'eraser') {
@@ -133,13 +153,20 @@ export class WhiteboardManager {
         } else {
             this.canvas.classList.remove('eraser-cursor');
         }
+
+        console.log('[WhiteboardManager] Tool selected:', tool);
     }
 
     startDraw(e) {
         this.isDrawing = true;
         const rect = this.canvas.getBoundingClientRect();
-        this.startX = e.clientX - rect.left;
-        this.startY = e.clientY - rect.top;
+
+        // Account for CSS scaling - map mouse position to canvas coordinates
+        const scaleX = this.canvas.width / rect.width;
+        const scaleY = this.canvas.height / rect.height;
+
+        this.startX = (e.clientX - rect.left) * scaleX;
+        this.startY = (e.clientY - rect.top) * scaleY;
 
         if (this.currentTool === 'pen' || this.currentTool === 'eraser') {
             this.ctx.beginPath();
@@ -148,14 +175,21 @@ export class WhiteboardManager {
             // Save canvas state for shapes
             this.snapshot = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
         }
+
+        console.log('[WhiteboardManager] startDraw - tool:', this.currentTool, 'x:', this.startX, 'y:', this.startY);
     }
 
     draw(e) {
         if (!this.isDrawing) return;
 
         const rect = this.canvas.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
+
+        // Account for CSS scaling - map mouse position to canvas coordinates
+        const scaleX = this.canvas.width / rect.width;
+        const scaleY = this.canvas.height / rect.height;
+
+        const x = (e.clientX - rect.left) * scaleX;
+        const y = (e.clientY - rect.top) * scaleY;
 
         this.ctx.strokeStyle = this.currentTool === 'eraser' ? '#ffffff' : this.currentColor;
         this.ctx.lineWidth = this.currentTool === 'eraser' ? this.brushSize * 3 : this.brushSize;
@@ -270,14 +304,16 @@ export class WhiteboardManager {
     }
 
     emitDrawData(data) {
+        const serverId = this.app.serverManager.currentServer?.id;
         const channelId = this.app.serverManager.currentChannel?.id;
-        console.log('[WhiteboardManager] emitDrawData - channelId:', channelId, 'data:', data.type);
-        if (!channelId) {
-            console.warn('[WhiteboardManager] No channel ID, cannot emit');
+        console.log('[WhiteboardManager] emitDrawData - serverId:', serverId, 'channelId:', channelId, 'data:', data.type);
+        if (!serverId || !channelId) {
+            console.warn('[WhiteboardManager] No server/channel ID, cannot emit');
             return;
         }
 
         this.app.socketManager.emit('whiteboard_draw', {
+            serverId: serverId,
             channelId: channelId,
             drawData: data
         });
@@ -285,8 +321,9 @@ export class WhiteboardManager {
     }
 
     handleRemoteDraw(data) {
+        const serverId = this.app.serverManager.currentServer?.id;
         const channelId = this.app.serverManager.currentChannel?.id;
-        if (data.channelId !== channelId) return;
+        if (data.serverId !== serverId || data.channelId !== channelId) return;
 
         const drawData = data.drawData;
 
@@ -302,7 +339,23 @@ export class WhiteboardManager {
             this.ctx.stroke();
             this.ctx.closePath();
         } else if (drawData.type === 'shape') {
+            // Save current tool state
+            const savedTool = this.currentTool;
+            const savedColor = this.currentColor;
+            const savedBrushSize = this.brushSize;
+
+            // Set remote tool state
+            this.currentTool = drawData.tool;
+            this.currentColor = drawData.color;
+            this.brushSize = drawData.size;
+
+            // Draw the shape
             this.drawShape(drawData.startX, drawData.startY, drawData.endX, drawData.endY, false);
+
+            // Restore original tool state
+            this.currentTool = savedTool;
+            this.currentColor = savedColor;
+            this.brushSize = savedBrushSize;
         }
 
         this.saveState();
@@ -353,9 +406,10 @@ export class WhiteboardManager {
         this.saveState();
 
         // Emit clear event to other users
+        const serverId = this.app.serverManager.currentServer?.id;
         const channelId = this.app.serverManager.currentChannel?.id;
-        if (channelId) {
-            this.app.socketManager.emit('whiteboard_clear', { channelId });
+        if (serverId && channelId) {
+            this.app.socketManager.emit('whiteboard_clear', { serverId, channelId });
         }
     }
 
@@ -366,8 +420,9 @@ export class WhiteboardManager {
             return;
         }
 
+        const serverId = this.app.serverManager.currentServer?.id;
         const channelId = this.app.serverManager.currentChannel?.id;
-        if (data.channelId === channelId) {
+        if (data.serverId === serverId && data.channelId === channelId) {
             this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
             this.saveState();
         }
@@ -385,9 +440,59 @@ export class WhiteboardManager {
         if (!this.isInitialized) {
             this.initialize();
         }
+
+        // 현재 서버 ID로 키 계산 (서버별로 그림판 분리)
+        const serverId = this.app.serverManager.currentServer?.id || 'default';
+
+        console.log('[WhiteboardManager] open() - 현재키:', this.currentStateKey, '새키:', serverId);
+
+        // 서버가 변경된 경우에만 캔버스 전환
+        if (serverId !== this.currentStateKey) {
+            console.log('[WhiteboardManager] 서버 변경 감지! 캔버스 전환 시작...');
+
+            // 이전 서버의 캔버스 상태 저장
+            if (this.currentStateKey && this.canvas && this.ctx) {
+                const dataUrl = this.canvas.toDataURL();
+                this.canvasStates[this.currentStateKey] = dataUrl;
+                console.log('[WhiteboardManager] 이전 서버 상태 저장:', this.currentStateKey);
+            }
+
+            // 새 서버로 키 변경
+            this.currentStateKey = serverId;
+
+            // 새 서버의 저장된 캔버스가 있으면 복원
+            if (this.canvasStates[serverId]) {
+                console.log('[WhiteboardManager] 저장된 상태 복원:', serverId);
+                const img = new Image();
+                img.src = this.canvasStates[serverId];
+                img.onload = () => {
+                    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                    this.ctx.drawImage(img, 0, 0);
+                    this.history = [];
+                    this.historyStep = -1;
+                    this.saveState();
+                };
+            } else {
+                // 새 서버는 빈 캔버스
+                console.log('[WhiteboardManager] 새 빈 캔버스 생성:', serverId);
+                this.ctx.fillStyle = '#ffffff';
+                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+                this.history = [];
+                this.historyStep = -1;
+                this.saveState();
+            }
+        } else {
+            console.log('[WhiteboardManager] 같은 서버 - 캔버스 유지');
+        }
     }
 
     close() {
+        // 닫을 때 현재 상태 저장
+        if (this.currentStateKey && this.canvas && this.ctx) {
+            this.canvasStates[this.currentStateKey] = this.canvas.toDataURL();
+            console.log('[WhiteboardManager] 닫기 시 상태 저장:', this.currentStateKey);
+        }
+
         document.getElementById('whiteboard-modal').style.display = 'none';
     }
 }
