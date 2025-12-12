@@ -117,26 +117,13 @@ export class SocketManager {
                 this.app.chatManager.handleReactionRemoved(data);
             });
 
-            // WebRTC Events
-            window.electronAPI.onSocketEvent('call_user_joined', (data) => {
-                this.app.webRTCManager.handleUserJoined(data);
+            // 음성 채널 상태 업데이트 (서버 전체 브로드캐스트)
+            window.electronAPI.onSocketEvent('voice_state_update', (data) => {
+                console.log('[SocketManager] voice_state_update received:', data);
+                this.app.serverManager.handleVoiceStateUpdate(data);
             });
 
-            window.electronAPI.onSocketEvent('call_user_left', (data) => {
-                this.app.webRTCManager.handleUserLeft(data);
-            });
-
-            window.electronAPI.onSocketEvent('offer', (data) => {
-                this.app.webRTCManager.handleOffer(data);
-            });
-
-            window.electronAPI.onSocketEvent('answer', (data) => {
-                this.app.webRTCManager.handleAnswer(data);
-            });
-
-            window.electronAPI.onSocketEvent('ice_candidate', (data) => {
-                this.app.webRTCManager.handleIceCandidate(data);
-            });
+            // WebRTC Events는 WebRTCManager.setupSignalingListeners에서 직접 처리함
 
         } catch (error) {
             console.error('소켓 연결 실패:', error);

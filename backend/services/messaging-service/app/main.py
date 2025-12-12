@@ -298,6 +298,231 @@ async def whiteboard_clear(sid, data):
         await sio.emit("whiteboard_clear", data, room=channel_id, skip_sid=sid)
 
 
+# ========================================
+# WebRTC Signaling Events
+# ========================================
+
+# 통화 참가자 추적
+call_participants = {}  # channel_id -> {sid: user_info}
+
+# 서버별 사용자 추적 (어떤 sid가 어떤 서버에 있는지)
+user_servers = {}  # sid -> server_id
+
+
+@sio.event
+async def join_server(sid, data):
+    """사용자가 서버에 접속할 때 서버 룸에 참가"""
+    server_id = data.get("serverId")
+    user_id = data.get("userId")
+    
+    if not server_id:
+        return
+    
+    # 이전 서버에서 나가기
+    old_server = user_servers.get(sid)
+    if old_server and old_server != server_id:
+        sio.leave_room(sid, f"server_{old_server}")
+    
+    # 새 서버 룸에 참가
+    sio.enter_room(sid, f"server_{server_id}")
+    user_servers[sid] = server_id
+    
+    if user_id:
+        online_users[sid] = user_id
+    
+    print(f"[Messaging] {sid} joined server room server_{server_id}")
+    
+    # 현재 서버의 모든 음성 채널 참가자 상태 전송
+    voice_states = {}
+    for channel_id, participants in call_participants.items():
+        if len(participants) > 0:
+            voice_states[channel_id] = list(participants.values())
+    
+    await sio.emit("voice_state_update", {
+        "serverId": server_id,
+        "voiceStates": voice_states
+    }, to=sid)
+
+
+@sio.event
+async def leave_server(sid, data):
+    """사용자가 서버에서 나갈 때"""
+    server_id = data.get("serverId")
+    if server_id:
+        sio.leave_room(sid, f"server_{server_id}")
+        if sid in user_servers:
+            del user_servers[sid]
+        print(f"[Messaging] {sid} left server room server_{server_id}")
+
+
+@sio.event
+async def call_join(sid, data):
+    """음성 채널 참여"""
+    channel_id = data.get("currentChannelId") or data.get("channelId")
+    server_id = data.get("serverId")
+    user_id = online_users.get(sid)
+    user_name = data.get("userName", "User")
+    
+    print(f"[WebRTC] {sid} joining call in {channel_id}, server: {server_id}")
+    
+    if not channel_id:
+        return
+    
+    # 채널의 통화 참가자 목록에 추가
+    if channel_id not in call_participants:
+        call_participants[channel_id] = {}
+    
+    call_participants[channel_id][sid] = {
+        "id": user_id,
+        "name": user_name,
+        "isScreenSharing": False
+    }
+    
+    # 해당 채널 room에 참가
+    sio.enter_room(sid, f"call_{channel_id}")
+    
+    # 기존 참가자들에게 새 참가자 알림 (P2P 연결용)
+    await sio.emit("user_joined", {
+        "channelId": channel_id,
+        "callerId": sid,
+        "userId": user_id,
+        "userName": user_name,
+        "participants": list(call_participants[channel_id].values())
+    }, room=f"call_{channel_id}", skip_sid=sid)
+    
+    # 새 참가자에게 현재 참가자 목록 전송
+    await sio.emit("call_participants", {
+        "channelId": channel_id,
+        "participants": list(call_participants[channel_id].values()),
+        "existingPeers": [s for s in call_participants[channel_id].keys() if s != sid]
+    }, to=sid)
+    
+    # ★ 서버 룸에 음성 상태 업데이트 브로드캐스트 (모든 서버 멤버가 볼 수 있도록)
+    if server_id:
+        await sio.emit("voice_state_update", {
+            "serverId": server_id,
+            "channelId": channel_id,
+            "participants": list(call_participants[channel_id].values())
+        }, room=f"server_{server_id}")
+
+
+@sio.event
+async def call_leave(sid, data):
+    """음성 채널 퇴장"""
+    channel_id = data.get("channelId")
+    server_id = data.get("serverId")
+    
+    print(f"[WebRTC] {sid} leaving call in {channel_id}, server: {server_id}")
+    
+    if channel_id and channel_id in call_participants:
+        if sid in call_participants[channel_id]:
+            del call_participants[channel_id][sid]
+        
+        remaining_participants = list(call_participants[channel_id].values())
+        
+        # 다른 참가자들에게 알림 (P2P 연결 정리용)
+        await sio.emit("user_left", {
+            "channelId": channel_id,
+            "callerId": sid,
+            "participants": remaining_participants
+        }, room=f"call_{channel_id}")
+        
+        sio.leave_room(sid, f"call_{channel_id}")
+        
+        # ★ 서버 룸에 음성 상태 업데이트 브로드캐스트 (모든 서버 멤버가 볼 수 있도록)
+        if server_id:
+            await sio.emit("voice_state_update", {
+                "serverId": server_id,
+                "channelId": channel_id,
+                "participants": remaining_participants
+            }, room=f"server_{server_id}")
+        
+        # 참가자가 없으면 정리
+        if not call_participants[channel_id]:
+            del call_participants[channel_id]
+
+
+@sio.event
+async def webrtc_offer(sid, data):
+    """WebRTC offer 전달"""
+    target_sid = data.get("targetSid")
+    offer = data.get("offer")
+    channel_id = data.get("channelId")
+    
+    print(f"[WebRTC] Relaying offer from {sid} to {target_sid}")
+    
+    if target_sid and offer:
+        await sio.emit("webrtc_offer", {
+            "fromSid": sid,
+            "offer": offer,
+            "channelId": channel_id
+        }, to=target_sid)
+
+
+@sio.event
+async def webrtc_answer(sid, data):
+    """WebRTC answer 전달"""
+    target_sid = data.get("targetSid")
+    answer = data.get("answer")
+    channel_id = data.get("channelId")
+    
+    print(f"[WebRTC] Relaying answer from {sid} to {target_sid}")
+    
+    if target_sid and answer:
+        await sio.emit("webrtc_answer", {
+            "fromSid": sid,
+            "answer": answer,
+            "channelId": channel_id
+        }, to=target_sid)
+
+
+@sio.event
+async def webrtc_ice_candidate(sid, data):
+    """ICE candidate 전달"""
+    target_sid = data.get("targetSid")
+    candidate = data.get("candidate")
+    
+    if target_sid and candidate:
+        await sio.emit("webrtc_ice_candidate", {
+            "fromSid": sid,
+            "candidate": candidate
+        }, to=target_sid)
+
+
+@sio.event
+async def screen_share_started(sid, data):
+    """화면 공유 시작 알림"""
+    channel_id = data.get("channelId")
+    user_id = online_users.get(sid)
+    
+    print(f"[WebRTC] Screen share started by {sid} in {channel_id}")
+    
+    if channel_id and channel_id in call_participants and sid in call_participants[channel_id]:
+        call_participants[channel_id][sid]["isScreenSharing"] = True
+        
+        await sio.emit("screen_share_started", {
+            "channelId": channel_id,
+            "callerId": sid,
+            "userId": user_id
+        }, room=f"call_{channel_id}", skip_sid=sid)
+
+
+@sio.event
+async def screen_share_stopped(sid, data):
+    """화면 공유 종료 알림"""
+    channel_id = data.get("channelId")
+    user_id = online_users.get(sid)
+    
+    if channel_id and channel_id in call_participants and sid in call_participants[channel_id]:
+        call_participants[channel_id][sid]["isScreenSharing"] = False
+        
+        await sio.emit("screen_share_stopped", {
+            "channelId": channel_id,
+            "callerId": sid,
+            "userId": user_id
+        }, room=f"call_{channel_id}", skip_sid=sid)
+
+
 # Export with Socket.IO
 app = socket_app
 

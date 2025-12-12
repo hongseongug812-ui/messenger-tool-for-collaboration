@@ -51,6 +51,11 @@ export class WebRTCManager {
             this.stopScreenShare();
         });
 
+        // 통화 컨트롤 바의 화면 공유 중지 버튼
+        document.getElementById('btn-stop-screen-share')?.addEventListener('click', () => {
+            this.stopScreenShare();
+        });
+
         // 디스코드 스타일 통화 컨트롤 바 버튼들
         document.getElementById('btn-toggle-mic')?.addEventListener('click', () => {
             this.toggleMicrophone();
@@ -72,16 +77,313 @@ export class WebRTCManager {
         document.getElementById('btn-screen-share')?.addEventListener('click', () => {
             this.startScreenShare();
         });
+
+        // WebRTC 시그널링 이벤트 리스너
+        this.setupSignalingListeners();
+    }
+
+    // WebRTC 시그널링 이벤트 설정
+    setupSignalingListeners() {
+        if (!window.electronAPI) {
+            console.log('[WebRTC] electronAPI not available, retrying in 1s...');
+            setTimeout(() => this.setupSignalingListeners(), 1000);
+            return;
+        }
+
+        // 통화 참가자 목록 받기
+        window.electronAPI.onSocketEvent('call_participants', (data) => {
+            console.log('[WebRTC] Received call_participants:', data);
+            const existingPeers = data.existingPeers || [];
+            const participants = data.participants || [];
+            const channelId = data.channelId;
+
+            // 참가자 목록 UI 업데이트
+            if (channelId) {
+                this.app.serverManager.updateVoiceParticipants(channelId, participants);
+            }
+
+            // 기존 참가자들에게 offer 보내기
+            existingPeers.forEach(async (peerSid) => {
+                await this.createPeerConnection(peerSid, true);
+            });
+        });
+
+        // 새 사용자 참여
+        window.electronAPI.onSocketEvent('user_joined', async (data) => {
+            console.log('[WebRTC] User joined:', data);
+            const channelId = data.channelId;
+            const participants = data.participants || [];
+
+            // 참가자 목록 UI 업데이트
+            if (channelId) {
+                this.app.serverManager.updateVoiceParticipants(channelId, participants);
+            }
+
+            // 새 참가자가 offer를 보낼 것이므로 대기
+        });
+
+        // 사용자 퇴장
+        window.electronAPI.onSocketEvent('user_left', (data) => {
+            console.log('[WebRTC] User left:', data);
+            this.closePeerConnection(data.callerId);
+
+            // 참가자 목록 업데이트
+            const channelId = this.app.serverManager.currentChannel?.id;
+            if (channelId) {
+                this.app.serverManager.updateVoiceParticipants(channelId, data.participants || []);
+            }
+        });
+
+        // WebRTC offer 받기
+        window.electronAPI.onSocketEvent('webrtc_offer', async (data) => {
+            console.log('[WebRTC] Received offer from:', data.fromSid);
+            await this.handleOffer(data.fromSid, data.offer);
+        });
+
+        // WebRTC answer 받기
+        window.electronAPI.onSocketEvent('webrtc_answer', async (data) => {
+            console.log('[WebRTC] Received answer from:', data.fromSid);
+            await this.handleAnswer(data.fromSid, data.answer);
+        });
+
+        // ICE candidate 받기
+        window.electronAPI.onSocketEvent('webrtc_ice_candidate', async (data) => {
+            await this.handleIceCandidate(data.fromSid, data.candidate);
+        });
+
+        // 화면 공유 시작 알림
+        window.electronAPI.onSocketEvent('screen_share_started', (data) => {
+            console.log('[WebRTC] Screen share started by:', data.callerId);
+            const channelId = this.app.serverManager.currentChannel?.id;
+            if (channelId) {
+                this.app.serverManager.updateParticipantScreenShare(channelId, data.userId, true);
+            }
+        });
+
+        // 화면 공유 종료 알림
+        window.electronAPI.onSocketEvent('screen_share_stopped', (data) => {
+            console.log('[WebRTC] Screen share stopped by:', data.callerId);
+            const channelId = this.app.serverManager.currentChannel?.id;
+            if (channelId) {
+                this.app.serverManager.updateParticipantScreenShare(channelId, data.userId, false);
+            }
+        });
+
+        console.log('[WebRTC] Signaling listeners setup complete');
+    }
+
+    // P2P 연결 생성
+    async createPeerConnection(targetSid, isInitiator) {
+        console.log('[WebRTC] Creating peer connection to:', targetSid, 'initiator:', isInitiator);
+
+        if (this.peers[targetSid]) {
+            console.log('[WebRTC] Peer already exists:', targetSid);
+            return this.peers[targetSid];
+        }
+
+        const pc = new RTCPeerConnection(this.iceServers);
+        this.peers[targetSid] = pc;
+
+        // 로컬 스트림 추가
+        if (this.localStream) {
+            this.localStream.getTracks().forEach(track => {
+                pc.addTrack(track, this.localStream);
+            });
+        }
+
+        // ICE candidate 이벤트
+        pc.onicecandidate = (event) => {
+            if (event.candidate) {
+                this.app.socketManager.emit('webrtc_ice_candidate', {
+                    targetSid: targetSid,
+                    candidate: event.candidate
+                });
+            }
+        };
+
+        // 원격 스트림 수신
+        pc.ontrack = (event) => {
+            console.log('[WebRTC] Received remote track from:', targetSid);
+            this.handleRemoteStream(targetSid, event.streams[0]);
+        };
+
+        // 연결 상태 변경
+        pc.onconnectionstatechange = () => {
+            console.log('[WebRTC] Connection state:', pc.connectionState);
+            if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+                this.closePeerConnection(targetSid);
+            }
+        };
+
+        // initiator면 offer 생성
+        if (isInitiator) {
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+
+            const channelId = this.app.serverManager.currentChannel?.id;
+            this.app.socketManager.emit('webrtc_offer', {
+                targetSid: targetSid,
+                offer: offer,
+                channelId: channelId
+            });
+        }
+
+        return pc;
+    }
+
+    // Offer 처리
+    async handleOffer(fromSid, offer) {
+        const pc = await this.createPeerConnection(fromSid, false);
+
+        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+
+        const channelId = this.app.serverManager.currentChannel?.id;
+        this.app.socketManager.emit('webrtc_answer', {
+            targetSid: fromSid,
+            answer: answer,
+            channelId: channelId
+        });
+    }
+
+    // Answer 처리
+    async handleAnswer(fromSid, answer) {
+        const pc = this.peers[fromSid];
+        if (pc) {
+            await pc.setRemoteDescription(new RTCSessionDescription(answer));
+        }
+    }
+
+    // ICE candidate 처리
+    async handleIceCandidate(fromSid, candidate) {
+        const pc = this.peers[fromSid];
+        if (pc && candidate) {
+            try {
+                await pc.addIceCandidate(new RTCIceCandidate(candidate));
+            } catch (err) {
+                console.error('[WebRTC] Error adding ICE candidate:', err);
+            }
+        }
+    }
+
+    // 원격 스트림 처리
+    handleRemoteStream(fromSid, stream) {
+        console.log('[WebRTC] Handling remote stream from:', fromSid);
+        console.log('[WebRTC] Stream tracks:', stream.getTracks().map(t => ({ kind: t.kind, enabled: t.enabled })));
+
+        // 원격 오디오/비디오 요소 생성
+        let audioEl = document.getElementById(`remote-audio-${fromSid}`);
+        if (!audioEl) {
+            audioEl = document.createElement('audio');
+            audioEl.id = `remote-audio-${fromSid}`;
+            audioEl.autoplay = true;
+            document.body.appendChild(audioEl);
+        }
+        audioEl.srcObject = stream;
+
+        // 비디오 트랙이 있으면 화면 공유로 표시
+        const videoTracks = stream.getVideoTracks();
+        console.log('[WebRTC] Video tracks count:', videoTracks.length);
+        if (videoTracks.length > 0) {
+            console.log('[WebRTC] Video track found, showing remote screen share');
+            this.showRemoteScreenShare(fromSid, stream);
+        }
+    }
+
+    // 원격 화면 공유 표시
+    showRemoteScreenShare(fromSid, stream) {
+        console.log('[WebRTC] Showing remote screen share from:', fromSid);
+
+        let container = document.getElementById('remote-screen-share-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'remote-screen-share-container';
+            container.className = 'screen-share-container';
+            container.innerHTML = `
+                <div class="screen-share-header">
+                    <span class="screen-share-username">다른 사용자의 화면 공유</span>
+                </div>
+                <div class="screen-share-video-wrapper">
+                    <video id="remote-screen-video" autoplay></video>
+                </div>
+            `;
+            const chatArea = document.querySelector('.chat-content') || document.body;
+            chatArea.prepend(container);
+        }
+
+        const video = document.getElementById('remote-screen-video');
+        if (video) {
+            video.srcObject = stream;
+        }
+    }
+
+    // P2P 연결 종료
+    closePeerConnection(targetSid) {
+        const pc = this.peers[targetSid];
+        if (pc) {
+            pc.close();
+            delete this.peers[targetSid];
+        }
+
+        // 원격 오디오 요소 제거
+        const audioEl = document.getElementById(`remote-audio-${targetSid}`);
+        if (audioEl) audioEl.remove();
+    }
+
+    // 화면 공유 트랙을 모든 P2P 연결에 추가
+    addScreenShareToPeers() {
+        if (!this.screenStream) return;
+
+        const videoTrack = this.screenStream.getVideoTracks()[0];
+        if (!videoTrack) return;
+
+        Object.entries(this.peers).forEach(([sid, pc]) => {
+            try {
+                // 기존 비디오 트랙 sender가 있으면 교체, 없으면 추가
+                const videoSender = pc.getSenders().find(s => s.track?.kind === 'video');
+                if (videoSender) {
+                    videoSender.replaceTrack(videoTrack);
+                } else {
+                    pc.addTrack(videoTrack, this.screenStream);
+                }
+                console.log('[WebRTC] Added screen share track to peer:', sid);
+            } catch (err) {
+                console.error('[WebRTC] Error adding screen share to peer:', sid, err);
+            }
+        });
     }
 
     stopScreenShare() {
+        console.log('[WebRTC] stopScreenShare called');
+
         // 화면 공유만 종료하고 통화는 유지
         this.hideScreenSharePreview();
+
         // 화면 공유 스트림이 있으면 트랙 중지
         if (this.screenStream) {
             this.screenStream.getTracks().forEach(track => track.stop());
             this.screenStream = null;
         }
+
+        // 참가자 목록에서 화면 공유 표시 제거
+        const channelId = this.app.serverManager.currentChannel?.id;
+        const userId = this.app.auth?.currentUser?.id;
+        if (channelId && userId) {
+            this.app.serverManager.updateParticipantScreenShare(channelId, userId, false);
+        }
+
+        // 컨트롤 바 상태 업데이트
+        this.updateScreenShareStatus(false);
+
+        // 화면 공유 버튼 상태
+        const shareBtn = document.getElementById('btn-screen-share-call');
+        const stopBtn = document.getElementById('btn-stop-screen-share');
+        if (shareBtn) shareBtn.style.display = '';
+        if (stopBtn) stopBtn.style.display = 'none';
+
+        // 다른 참가자들에게 화면 공유 종료 알림
+        this.app.socketManager?.emit('screen_share_stopped', { channelId });
     }
 
     hideScreenShareModal() {
@@ -155,9 +457,17 @@ export class WebRTCManager {
             // 컨트롤 바에 화면 공유 상태 표시
             this.updateScreenShareStatus(true);
 
-            // 화면 공유 버튼 active 상태
+            // 화면 공유 버튼 숨기고 중지 버튼 표시
             const shareBtn = document.getElementById('btn-screen-share-call');
-            if (shareBtn) shareBtn.classList.add('active');
+            const stopBtn = document.getElementById('btn-stop-screen-share');
+            if (shareBtn) shareBtn.style.display = 'none';
+            if (stopBtn) stopBtn.style.display = '';
+
+            // 다른 참가자들에게 화면 공유 시작 알림
+            this.app.socketManager?.emit('screen_share_started', { channelId });
+
+            // 화면 공유 트랙을 기존 P2P 연결에 추가
+            this.addScreenShareToPeers();
 
             // 화면 공유 종료 시 처리
             videoTrack.onended = () => {
@@ -170,6 +480,9 @@ export class WebRTCManager {
                 // 컨트롤 바 상태 업데이트
                 this.updateScreenShareStatus(false);
                 if (shareBtn) shareBtn.classList.remove('active');
+
+                // 다른 참가자들에게 화면 공유 종료 알림
+                this.app.socketManager?.emit('screen_share_stopped', { channelId });
             };
 
         } catch (err) {
@@ -297,11 +610,22 @@ export class WebRTCManager {
             // 컨트롤 바에 화면 공유 상태 표시
             this.updateScreenShareStatus(true);
 
-            // 화면 공유 버튼 active 상태
+            // 화면 공유 버튼 숨기고 중지 버튼 표시
             const shareBtn = document.getElementById('btn-screen-share-call');
-            if (shareBtn) shareBtn.classList.add('active');
+            const stopBtn = document.getElementById('btn-stop-screen-share');
+            if (shareBtn) shareBtn.style.display = 'none';
+            if (stopBtn) stopBtn.style.display = '';
 
-            this.app.socketManager.emit('call_join', { currentChannelId: channelId });
+            // 서버에 화면 공유 시작 알림
+            const serverId = this.app.serverManager.currentServer?.id;
+            this.app.socketManager.emit('screen_share_started', { channelId, serverId });
+
+            // 화면 스트림을 screenStream에도 저장 (다른 함수에서 사용)
+            this.screenStream = this.localStream;
+
+            // P2P 연결에 화면 공유 트랙 추가
+            this.addScreenShareToPeers();
+
             this.updateConnectionState("Screen Sharing");
 
             if (this.localStream.getVideoTracks().length > 0) {
@@ -311,7 +635,11 @@ export class WebRTCManager {
                         this.app.serverManager.updateParticipantScreenShare(channelId, userId, false);
                     }
                     this.updateScreenShareStatus(false);
-                    if (shareBtn) shareBtn.classList.remove('active');
+                    // 버튼 상태 복원
+                    if (shareBtn) shareBtn.style.display = '';
+                    if (stopBtn) stopBtn.style.display = 'none';
+                    // 서버에 화면 공유 종료 알림
+                    this.app.socketManager?.emit('screen_share_stopped', { channelId });
                     this.stopScreenShare();
                 };
             }
@@ -357,8 +685,20 @@ export class WebRTCManager {
 
             this.setupAudioVisualizer(this.localStream);
 
+            // 참가자 목록은 서버에서 voice_state_update 이벤트로 관리
+            // 로컬 추가는 중복을 유발하므로 제거
+            const currentUser = this.app.auth?.currentUser;
+            console.log('[WebRTC] currentUser:', currentUser);
+
             // Join call room
-            this.app.socketManager.emit('call_join', { currentChannelId: channelId });
+            const serverId = this.app.serverManager.currentServer?.id;
+            console.log('[WebRTC] Emitting call_join - channelId:', channelId, 'serverId:', serverId, 'userId:', currentUser?.id, 'userName:', currentUser?.name);
+            this.app.socketManager.emit('call_join', {
+                currentChannelId: channelId,
+                serverId: serverId,
+                userId: currentUser?.id,
+                userName: currentUser?.name || 'User'
+            });
             this.updateConnectionState(isScreen ? "Screen Sharing" : "Connected");
 
             // Handle stream stop (e.g. user clicks "Stop Sharing")
@@ -784,8 +1124,9 @@ export class WebRTCManager {
         }
 
         // Notify others
+        const serverId = this.app.serverManager.currentServer?.id;
         if (channelId) {
-            this.app.socketManager.emit('call_leave', { channelId });
+            this.app.socketManager.emit('call_leave', { channelId, serverId });
         }
 
         this.isCallActive = false;

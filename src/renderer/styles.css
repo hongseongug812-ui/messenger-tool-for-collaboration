@@ -8310,3 +8310,20 @@ body {
   background: var(--error);
   color: white;
 }
+
+/* 사용자 섹션 (아바타 + 공유중 표시) */
+#call-control-bar .call-user-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+#call-control-bar .screen-share-status {
+  font-size: 9px;
+  color: var(--online);
+  background: rgba(16, 185, 129, 0.2);
+  padding: 1px 4px;
+  border-radius: 3px;
+  white-space: nowrap;
+}

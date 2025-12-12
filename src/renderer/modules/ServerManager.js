@@ -9,6 +9,8 @@ export class ServerManager {
         this.draggedChannel = null;
         this.serverContextTarget = null;
         this.channelContextTarget = null;
+        // 음성 채널 참가자 캐시 (채널 리렌더링 후에도 유지)
+        this.voiceParticipantsCache = {};  // channelId -> participants[]
         this.bindContextMenuEvents();
         this.bindSidebarButtons();
     }
@@ -525,6 +527,16 @@ export class ServerManager {
             this.renderServerList();
             this.renderChannelList();
 
+            // 서버 룸에 참가 (음성 채널 상태를 받기 위함)
+            const userId = this.app.auth?.currentUser?.id;
+            if (this.currentServer && this.app.socketManager) {
+                this.app.socketManager.emit('join_server', {
+                    serverId: this.currentServer.id,
+                    userId: userId
+                });
+                console.log('[ServerManager] Joined server room:', this.currentServer.id);
+            }
+
             // Fetch unread counts
             await this.fetchUnreadCounts();
 
@@ -606,8 +618,22 @@ export class ServerManager {
         // 화이트보드에 서버 변경 알림 (현재 상태 저장)
         this.app.whiteboardManager?.onChannelChange();
 
+        // 이전 서버에서 나가기
+        if (this.currentServer && this.currentServer.id !== server.id) {
+            this.app.socketManager?.emit('leave_server', {
+                serverId: this.currentServer.id
+            });
+        }
+
         this.currentServer = server;
         this.currentChannel = null;
+
+        // 새 서버 룸에 참가 (모든 음성 채널 상태를 받기 위함)
+        const userId = this.app.auth?.currentUser?.id;
+        this.app.socketManager?.emit('join_server', {
+            serverId: server.id,
+            userId: userId
+        });
 
         // UI Updates
         document.querySelectorAll('.server-item').forEach(item => {
@@ -626,6 +652,32 @@ export class ServerManager {
         }
 
         this.renderMembers();
+    }
+
+    // 음성 상태 업데이트 핸들러 (서버 전체에서 받음)
+    handleVoiceStateUpdate(data) {
+        console.log('[ServerManager] handleVoiceStateUpdate:', data);
+        const { serverId, channelId, participants, voiceStates } = data;
+
+        // 현재 서버가 아닌 경우 무시
+        if (serverId && serverId !== this.currentServer?.id) {
+            console.log('[ServerManager] Ignoring voice_state_update for different server:', serverId, 'current:', this.currentServer?.id);
+            return;
+        }
+
+        // 단일 채널 업데이트인 경우
+        if (channelId && participants) {
+            console.log('[ServerManager] Updating single channel:', channelId, 'with', participants.length, 'participants');
+            this.updateVoiceParticipants(channelId, participants);
+        }
+
+        // 서버 접속 시 모든 채널 상태 업데이트인 경우
+        if (voiceStates && Object.keys(voiceStates).length > 0) {
+            console.log('[ServerManager] Updating all voice states:', voiceStates);
+            for (const [chId, pList] of Object.entries(voiceStates)) {
+                this.updateVoiceParticipants(chId, pList);
+            }
+        }
     }
 
     renderChannelList() {
@@ -697,6 +749,33 @@ export class ServerManager {
             e.preventDefault();
             this.showChannelAreaContextMenu(e);
         });
+
+        // 캐시된 음성 참가자 복원
+        this.restoreVoiceParticipantsFromCache();
+    }
+
+    // 캐시에서 음성 참가자 복원
+    restoreVoiceParticipantsFromCache() {
+        for (const [channelId, participants] of Object.entries(this.voiceParticipantsCache)) {
+            if (participants && participants.length > 0) {
+                const container = document.getElementById(`voice-participants-${channelId}`);
+                if (container) {
+                    console.log('[ServerManager] Restoring voice participants from cache:', channelId, participants);
+                    container.innerHTML = '';
+                    participants.forEach(p => {
+                        const participantEl = document.createElement('div');
+                        participantEl.className = 'voice-participant';
+                        participantEl.dataset.userId = p.id || 'unknown';
+                        participantEl.innerHTML = `
+                            <div class="participant-avatar">${p.name ? p.name[0] : 'U'}</div>
+                            <span class="participant-name">${p.name || 'User'}</span>
+                            ${p.isScreenSharing ? '<span class="screen-share-icon" title="화면 공유 중">🖥️</span>' : ''}
+                        `;
+                        container.appendChild(participantEl);
+                    });
+                }
+            }
+        }
     }
 
     // 채널 영역 컨텍스트 메뉴 (카테고리 생성)
@@ -832,18 +911,9 @@ export class ServerManager {
         }
 
         // WebRTC로 통화 시작
+        // 참가자 목록은 서버에서 voice_state_update 이벤트로 관리됨
         if (this.app.webRTCManager) {
             await this.app.webRTCManager.startCall();
-        }
-
-        // 현재 사용자를 참가자로 추가
-        const currentUser = this.app.auth?.currentUser;
-        if (currentUser) {
-            this.addVoiceParticipant(channel.id, {
-                id: currentUser.id,
-                name: currentUser.name,
-                isScreenSharing: false
-            });
         }
     }
 
@@ -907,8 +977,17 @@ export class ServerManager {
 
     // 음성 채널 참가자 업데이트 (전체)
     updateVoiceParticipants(channelId, participants) {
+        console.log('[ServerManager] updateVoiceParticipants called:', channelId, 'participants:', participants);
+
+        // 캐시에 저장 (나중에 복원 가능)
+        this.voiceParticipantsCache[channelId] = participants;
+
         const container = document.getElementById(`voice-participants-${channelId}`);
-        if (!container) return;
+        console.log('[ServerManager] Container found:', container);
+        if (!container) {
+            console.log('[ServerManager] Container not found for channel:', channelId);
+            return;
+        }
 
         container.innerHTML = '';
 
