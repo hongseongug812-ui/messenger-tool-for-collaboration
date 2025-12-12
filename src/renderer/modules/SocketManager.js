@@ -123,6 +123,38 @@ export class SocketManager {
                 this.app.serverManager.handleVoiceStateUpdate(data);
             });
 
+            // 화면 공유 시작 - P2P 연결 생성
+            window.electronAPI.onSocketEvent('screen_share_started', async (data) => {
+                console.log('[SocketManager] screen_share_started received:', data);
+                const channelId = this.app.serverManager.currentChannel?.id;
+                if (channelId) {
+                    this.app.serverManager.updateParticipantScreenShare(channelId, data.userId, true);
+                }
+
+                // P2P 연결 생성 시도
+                if (this.app.webRTCManager && data.callerId && !this.app.webRTCManager.peers[data.callerId]) {
+                    console.log('[SocketManager] Creating peer connection to screen sharer:', data.callerId);
+                    await this.app.webRTCManager.createPeerConnection(data.callerId, false);
+                }
+            });
+
+            // 새 사용자 참여 - P2P 연결 생성
+            window.electronAPI.onSocketEvent('user_joined', async (data) => {
+                console.log('[SocketManager] user_joined received:', data);
+                const channelId = data.channelId;
+                const participants = data.participants || [];
+
+                if (channelId) {
+                    this.app.serverManager.updateVoiceParticipants(channelId, participants);
+                }
+
+                // P2P 연결 생성 시도
+                if (this.app.webRTCManager && data.callerId && this.app.webRTCManager.isCallActive && !this.app.webRTCManager.peers[data.callerId]) {
+                    console.log('[SocketManager] Creating peer connection to new user:', data.callerId);
+                    await this.app.webRTCManager.createPeerConnection(data.callerId, true);
+                }
+            });
+
             // WebRTC Events는 WebRTCManager.setupSignalingListeners에서 직접 처리함
 
         } catch (error) {

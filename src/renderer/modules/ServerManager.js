@@ -669,6 +669,17 @@ export class ServerManager {
         if (channelId && participants) {
             console.log('[ServerManager] Updating single channel:', channelId, 'with', participants.length, 'participants');
             this.updateVoiceParticipants(channelId, participants);
+
+            // 화면 공유 중인 참가자가 있으면 P2P 연결 요청
+            participants.forEach(p => {
+                if (p.isScreenSharing && this.app.webRTCManager) {
+                    console.log('[ServerManager] Screen sharer detected:', p.id);
+                    // remoteStreams에 이미 있으면 스킵
+                    if (!Object.values(this.app.webRTCManager.remoteStreams).some(s => s.getVideoTracks().length > 0)) {
+                        // P2P 연결이 없으면 자동으로 화면 공유 보기 시도 (스트림 수신 대기)
+                    }
+                }
+            });
         }
 
         // 서버 접속 시 모든 채널 상태 업데이트인 경우
@@ -1001,8 +1012,17 @@ export class ServerManager {
             participantEl.innerHTML = `
                 <div class="participant-avatar">${p.name ? p.name[0] : 'U'}</div>
                 <span class="participant-name">${p.name || 'User'}</span>
-                ${p.isScreenSharing ? '<span class="screen-share-icon" title="화면 공유 중">🖥️</span>' : ''}
+                ${p.isScreenSharing ? '<button class="screen-share-view-btn" title="화면 공유 보기">🖥️ 공유중</button>' : ''}
             `;
+
+            // 화면 공유 보기 버튼 클릭 이벤트
+            if (p.isScreenSharing) {
+                const viewBtn = participantEl.querySelector('.screen-share-view-btn');
+                viewBtn?.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.app.webRTCManager?.showRemoteScreenShare(p.id, null);
+                });
+            }
 
             container.appendChild(participantEl);
         });
