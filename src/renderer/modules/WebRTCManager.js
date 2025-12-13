@@ -1,10 +1,19 @@
+/**
+ * WebRTCManager - Facade Pattern
+ * SOLID 원칙 적용:
+ * - SRP: 각 책임을 별도 클래스로 분리
+ * - DIP: 의존성 주입을 통해 결합도 감소
+ * - OCP: 확장에는 열려있고 수정에는 닫혀있음
+ */
+import { PeerConnectionManager } from './webrtc/PeerConnectionManager.js';
+import { MediaStreamManager } from './webrtc/MediaStreamManager.js';
+import { SignalingHandler } from './webrtc/SignalingHandler.js';
+import { ScreenShareManager } from './webrtc/ScreenShareManager.js';
+import { WebRTCUIController } from './webrtc/WebRTCUIController.js';
+
 export class WebRTCManager {
     constructor(app) {
         this.app = app;
-        this.localStream = null;
-        this.screenStream = null; // 화면 공유 스트림
-        this.peers = {}; // sid -> RTCPeerConnection
-        this.remoteStreams = {}; // sid -> MediaStream (원격 스트림 저장)
         this.isCallActive = false;
         this.isMinimized = false;
         this.isDeafened = false; // 헤드셋 음소거 상태
@@ -15,13 +24,61 @@ export class WebRTCManager {
         this.dataArray = null;
         this.animationId = null;
 
-        this.iceServers = {
+        // SOLID: 의존성 주입 (Dependency Inversion Principle)
+        const iceServers = {
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' }
             ]
         };
+
+        // 각 책임별 매니저 초기화 (Single Responsibility Principle)
+        this.peerConnectionManager = new PeerConnectionManager(iceServers);
+        this.mediaStreamManager = new MediaStreamManager();
+        this.signalingHandler = new SignalingHandler(
+            this.peerConnectionManager,
+            this.mediaStreamManager,
+            app.socketManager,
+            app.serverManager,
+            this // WebRTCManager 참조 전달 (ontrack 이벤트 처리용)
+        );
+        this.screenShareManager = new ScreenShareManager(
+            this.mediaStreamManager,
+            this.peerConnectionManager,
+            app.socketManager,
+            app.serverManager,
+            app
+        );
+        this.uiController = new WebRTCUIController(app);
+
         this.bindEvents();
+    }
+
+    // 하위 호환성을 위한 getter/setter
+    get peers() {
+        return this.peerConnectionManager.getAll();
+    }
+
+    // peers는 읽기 전용이므로 setter 없음 (직접 수정 불가, peerConnectionManager를 통해 관리)
+
+    get localStream() {
+        return this.mediaStreamManager.getLocalStream();
+    }
+
+    set localStream(stream) {
+        this.mediaStreamManager.setLocalStream(stream);
+    }
+
+    get screenStream() {
+        return this.mediaStreamManager.getScreenStream();
+    }
+
+    set screenStream(stream) {
+        this.mediaStreamManager.setScreenStream(stream);
+    }
+
+    get remoteStreams() {
+        return this.mediaStreamManager.getAllRemoteStreams();
     }
 
     bindEvents() {
@@ -175,16 +232,136 @@ export class WebRTCManager {
 
         // 화면 공유 시작 알림
         window.electronAPI.onSocketEvent('screen_share_started', async (data) => {
-            console.log('[WebRTC] Screen share started by:', data.callerId);
+            console.log('[WebRTC] Screen share started by:', data.callerId, 'userId:', data.userId);
             const channelId = this.app.serverManager.currentChannel?.id;
             if (channelId) {
                 this.app.serverManager.updateParticipantScreenShare(channelId, data.userId, true);
+                
+                // userId와 sid 매핑 저장 (findUserIdBySid에서 사용)
+                if (data.callerId && data.userId) {
+                    const participants = this.app.serverManager.voiceParticipants?.[channelId] || [];
+                    let participant = participants.find(p => p.id === data.userId);
+                    if (participant) {
+                        participant.sid = data.callerId;
+                        console.log('[WebRTC] ✅ Mapped userId to sid:', data.userId, '->', data.callerId);
+                    } else {
+                        // 참가자 목록에 없으면 추가
+                        participants.push({
+                            id: data.userId,
+                            sid: data.callerId,
+                            name: 'User' // 나중에 업데이트될 수 있음
+                        });
+                        console.log('[WebRTC] ✅ Added participant mapping:', data.userId, '->', data.callerId);
+                    }
+                }
             }
 
-            // 화면 공유자와 P2P 연결이 없으면 생성 요청
-            if (data.callerId && !this.peers[data.callerId]) {
+            // 화면 공유자와 P2P 연결이 없으면 생성
+            // 통화 중이 아니어도 화면 공유를 보기 위해 연결 생성
+            // SOLID: PeerConnectionManager를 통해 확인
+            if (data.callerId && !this.peerConnectionManager.exists(data.callerId)) {
                 console.log('[WebRTC] Creating peer connection to screen sharer:', data.callerId);
-                await this.createPeerConnection(data.callerId, false);
+                // 통화 중이 아니면 통화 참가
+                if (!this.isCallActive) {
+                    // 오디오 스트림 가져오기 (통화 시작)
+                    try {
+                        this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                        this.isCallActive = true;
+                        this.showCallControlBar();
+                        
+                        // 통화 참가
+                        const currentUser = this.app.auth?.currentUser;
+                        const serverId = this.app.serverManager.currentServer?.id;
+                        this.app.socketManager.emit('call_join', {
+                            currentChannelId: channelId,
+                            serverId: serverId,
+                            userId: currentUser?.id,
+                            userName: currentUser?.name || 'User'
+                        });
+                    } catch (err) {
+                        console.error('[WebRTC] Failed to start call for screen share:', err);
+                    }
+                }
+                // P2P 연결 생성 (initiator: true - offer 생성)
+                await this.createPeerConnection(data.callerId, true);
+            } else if (data.callerId && this.peerConnectionManager.exists(data.callerId)) {
+                // 이미 연결이 있으면 renegotiation 트리거
+                console.log('[WebRTC] Peer connection exists, triggering renegotiation');
+                const pc = this.peerConnectionManager.get(data.callerId);
+                try {
+                    const offer = await pc.createOffer();
+                    await pc.setLocalDescription(offer);
+                    this.app.socketManager.emit('webrtc_offer', {
+                        targetSid: data.callerId,
+                        offer: offer,
+                        channelId: channelId
+                    });
+                } catch (err) {
+                    console.error('[WebRTC] Renegotiation error:', err);
+                }
+            }
+
+            // 화면 공유 시작 알림 수신 시 즉시 원격 화면 공유 표시 시도 (Discord 스타일)
+            const userId = data.userId;
+            const callerSid = data.callerId;
+            if (userId || callerSid) {
+                console.log('[WebRTC] 🎬 Screen share started, immediately checking for stream');
+                
+                // 즉시 한 번 체크
+                const checkStream = () => {
+                    let stream = null;
+                    
+                    // sid로 직접 스트림 찾기
+                    if (callerSid) {
+                        stream = this.mediaStreamManager.getRemoteStream(callerSid);
+                        if (stream && stream.getVideoTracks().length > 0) {
+                            console.log('[WebRTC] ✅ Found stream by sid:', callerSid);
+                            this.showRemoteScreenShare(userId, stream);
+                            return true;
+                        }
+                    }
+                    
+                    // userId로 sid 찾아서 스트림 찾기
+                    if (!stream && userId) {
+                        const sid = this.findSidByUserId(userId);
+                        if (sid) {
+                            stream = this.mediaStreamManager.getRemoteStream(sid);
+                            if (stream && stream.getVideoTracks().length > 0) {
+                                console.log('[WebRTC] ✅ Found stream by userId:', userId);
+                                this.showRemoteScreenShare(userId, stream);
+                                return true;
+                            }
+                        }
+                    }
+                    
+                    // 모든 원격 스트림에서 비디오 트랙 찾기
+                    const allStreams = this.mediaStreamManager.getAllRemoteStreams();
+                    for (const [sid, s] of Object.entries(allStreams)) {
+                        if (s && s.getVideoTracks && s.getVideoTracks().length > 0) {
+                            console.log('[WebRTC] ✅ Found video stream in all streams:', sid);
+                            this.showRemoteScreenShare(userId, s);
+                            return true;
+                        }
+                    }
+                    
+                    return false;
+                };
+
+                // 즉시 체크
+                if (!checkStream()) {
+                    // 없으면 빠르게 재시도 (Discord처럼)
+                    let attempts = 0;
+                    const maxAttempts = 10; // 5초 동안 빠르게 시도
+                    const checkInterval = setInterval(() => {
+                        attempts++;
+                        if (checkStream() || attempts >= maxAttempts) {
+                            clearInterval(checkInterval);
+                            if (attempts >= maxAttempts) {
+                                console.log('[WebRTC] ⚠️ Stream not found after', maxAttempts, 'attempts');
+                            }
+                        }
+                    }, 500); // 0.5초마다 체크 (더 빠르게)
+                }
             }
         });
 
@@ -204,43 +381,94 @@ export class WebRTCManager {
     async createPeerConnection(targetSid, isInitiator) {
         console.log('[WebRTC] Creating peer connection to:', targetSid, 'initiator:', isInitiator);
 
-        if (this.peers[targetSid]) {
+        // SOLID: PeerConnectionManager를 통해 관리
+        if (this.peerConnectionManager.exists(targetSid)) {
             console.log('[WebRTC] Peer already exists:', targetSid);
-            return this.peers[targetSid];
+            return this.peerConnectionManager.get(targetSid);
         }
 
-        const pc = new RTCPeerConnection(this.iceServers);
-        this.peers[targetSid] = pc;
+        const pc = this.peerConnectionManager.create(targetSid, isInitiator);
 
-        // 로컬 스트림 추가
-        if (this.localStream) {
-            this.localStream.getTracks().forEach(track => {
-                pc.addTrack(track, this.localStream);
+        // 로컬 스트림 추가 (항상 추가)
+        const localStream = this.mediaStreamManager.getLocalStream();
+        if (localStream) {
+            localStream.getTracks().forEach(track => {
+                pc.addTrack(track, localStream);
             });
+            console.log('[WebRTC] ✅ Added local stream tracks to peer:', targetSid);
         }
 
         // 화면 공유 중이면 화면 스트림도 추가 (나중에 입장하는 사용자에게도 전송)
-        if (this.screenStream && this.screenStream !== this.localStream) {
-            this.screenStream.getVideoTracks().forEach(track => {
-                pc.addTrack(track, this.screenStream);
+        const screenStream = this.mediaStreamManager.getScreenStream();
+        if (screenStream && screenStream !== localStream) {
+            screenStream.getVideoTracks().forEach(track => {
+                pc.addTrack(track, screenStream);
             });
-            console.log('[WebRTC] Added screen share track to new peer:', targetSid);
+            console.log('[WebRTC] ✅ Added screen share track to new peer:', targetSid);
         }
 
         // ICE candidate 이벤트
         pc.onicecandidate = (event) => {
             if (event.candidate) {
+                // RTCIceCandidate 객체를 JSON으로 직렬화
+                const candidateData = event.candidate.toJSON ? event.candidate.toJSON() : {
+                    candidate: event.candidate.candidate,
+                    sdpMid: event.candidate.sdpMid,
+                    sdpMLineIndex: event.candidate.sdpMLineIndex
+                };
                 this.app.socketManager.emit('webrtc_ice_candidate', {
                     targetSid: targetSid,
-                    candidate: event.candidate
+                    candidate: candidateData
                 });
             }
         };
 
         // 원격 스트림 수신
         pc.ontrack = (event) => {
-            console.log('[WebRTC] Received remote track from:', targetSid);
-            this.handleRemoteStream(targetSid, event.streams[0]);
+            console.log('[WebRTC] 🎬 ontrack event received from:', targetSid);
+            console.log('[WebRTC] Event details:', {
+                streams: event.streams?.length || 0,
+                track: event.track ? {
+                    kind: event.track.kind,
+                    id: event.track.id,
+                    enabled: event.track.enabled,
+                    readyState: event.track.readyState,
+                    label: event.track.label
+                } : null,
+                transceiver: event.transceiver ? {
+                    direction: event.transceiver.direction,
+                    currentDirection: event.transceiver.currentDirection
+                } : null
+            });
+            
+            if (event.streams && event.streams.length > 0) {
+                const stream = event.streams[0];
+                const tracks = stream.getTracks();
+                console.log('[WebRTC] ✅ Stream found in ontrack:', stream.id);
+                console.log('[WebRTC] Stream tracks:', tracks.map(t => `${t.kind}:${t.id}:${t.label || 'no-label'}:${t.readyState}`));
+                
+                // 비디오 트랙이 있는지 확인
+                const videoTracks = stream.getVideoTracks();
+                if (videoTracks.length > 0) {
+                    console.log('[WebRTC] 🎥 Video track detected! Track details:', {
+                        id: videoTracks[0].id,
+                        label: videoTracks[0].label,
+                        enabled: videoTracks[0].enabled,
+                        readyState: videoTracks[0].readyState,
+                        muted: videoTracks[0].muted
+                    });
+                }
+                
+                this.handleRemoteStream(targetSid, stream);
+            } else if (event.track) {
+                // streams가 없지만 track이 있는 경우 (일부 브라우저)
+                console.log('[WebRTC] ⚠️ No streams but track exists, creating stream');
+                console.log('[WebRTC] Track kind:', event.track.kind, 'id:', event.track.id);
+                const stream = new MediaStream([event.track]);
+                this.handleRemoteStream(targetSid, stream);
+            } else {
+                console.warn('[WebRTC] ❌ No streams or track in ontrack event');
+            }
         };
 
         // 연결 상태 변경
@@ -271,15 +499,26 @@ export class WebRTCManager {
 
         // initiator면 offer 생성
         if (isInitiator) {
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
+            try {
+                // 이미 offer가 생성되었는지 확인
+                if (pc.signalingState !== 'stable' && pc.localDescription) {
+                    console.log('[WebRTC] ⚠️ Offer already created, skipping duplicate');
+                    return pc;
+                }
+                
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                console.log('[WebRTC] ✅ Offer created and set, state:', pc.signalingState);
 
-            const channelId = this.app.serverManager.currentChannel?.id;
-            this.app.socketManager.emit('webrtc_offer', {
-                targetSid: targetSid,
-                offer: offer,
-                channelId: channelId
-            });
+                const channelId = this.app.serverManager.currentChannel?.id;
+                this.app.socketManager.emit('webrtc_offer', {
+                    targetSid: targetSid,
+                    offer: offer,
+                    channelId: channelId
+                });
+            } catch (error) {
+                console.error('[WebRTC] ❌ Error creating offer:', error);
+            }
         }
 
         return pc;
@@ -287,32 +526,139 @@ export class WebRTCManager {
 
     // Offer 처리
     async handleOffer(fromSid, offer) {
-        const pc = await this.createPeerConnection(fromSid, false);
+        console.log('[WebRTC] handleOffer from:', fromSid, 'offer:', offer);
 
-        await pc.setRemoteDescription(new RTCSessionDescription(offer));
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
+        if (!offer) {
+            console.error('[WebRTC] Invalid offer: null or undefined');
+            return;
+        }
 
-        const channelId = this.app.serverManager.currentChannel?.id;
-        this.app.socketManager.emit('webrtc_answer', {
-            targetSid: fromSid,
-            answer: answer,
-            channelId: channelId
-        });
+        try {
+            // 기존 peer connection이 있는지 확인
+            let pc = this.peerConnectionManager.get(fromSid);
+            
+            // 기존 연결이 있고 stable 상태가 아니면 처리
+            if (pc && pc.signalingState !== 'stable') {
+                console.warn('[WebRTC] ⚠️ Existing peer connection in wrong state:', pc.signalingState);
+                // have-local-offer 상태면 우리가 offer를 보낸 상태이므로 answer를 기다려야 함
+                if (pc.signalingState === 'have-local-offer') {
+                    console.log('[WebRTC] ℹ️ Already sent offer, waiting for answer. Ignoring incoming offer.');
+                    return;
+                }
+                // 다른 상태면 연결을 재생성
+                console.log('[WebRTC] Recreating peer connection due to wrong state');
+                this.peerConnectionManager.close(fromSid);
+                pc = null;
+            }
+            
+            // peer connection이 없으면 생성
+            if (!pc) {
+                pc = await this.createPeerConnection(fromSid, false);
+            }
+
+            // offer 형식 보정 (type 속성이 없으면 추가)
+            let offerDesc = offer;
+            if (typeof offer === 'object' && !offer.type) {
+                offerDesc = { type: 'offer', sdp: offer.sdp || offer };
+            }
+
+            // signalingState 확인 - stable 상태여야 offer를 받을 수 있음
+            if (pc.signalingState !== 'stable') {
+                console.warn('[WebRTC] ⚠️ Wrong state for setting offer:', pc.signalingState, '- Will attempt anyway');
+            }
+            
+            await pc.setRemoteDescription(new RTCSessionDescription(offerDesc));
+            console.log('[WebRTC] ✅ Offer set, new state:', pc.signalingState);
+            
+            // answer 생성 전 상태 확인
+            if (pc.signalingState !== 'have-remote-offer') {
+                console.warn('[WebRTC] ⚠️ Wrong state for creating answer:', pc.signalingState);
+            }
+            
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            console.log('[WebRTC] ✅ Answer created and set, new state:', pc.signalingState);
+
+            const channelId = this.app.serverManager.currentChannel?.id;
+            this.app.socketManager.emit('webrtc_answer', {
+                targetSid: fromSid,
+                answer: answer,
+                channelId: channelId
+            });
+            console.log('[WebRTC] ✅ Answer sent to:', fromSid);
+        } catch (error) {
+            console.error('[WebRTC] ❌ Error handling offer:', error);
+        }
     }
 
     // Answer 처리
     async handleAnswer(fromSid, answer) {
-        const pc = this.peers[fromSid];
-        if (pc) {
-            await pc.setRemoteDescription(new RTCSessionDescription(answer));
+        console.log('[WebRTC] handleAnswer from:', fromSid);
+
+        if (!answer) {
+            console.error('[WebRTC] Invalid answer: null or undefined');
+            return;
+        }
+
+        // SOLID: PeerConnectionManager를 통해 가져오기
+        const pc = this.peerConnectionManager.get(fromSid);
+        if (!pc) {
+            console.warn('[WebRTC] No peer connection found for:', fromSid);
+            return;
+        }
+
+        try {
+            // signalingState 확인
+            const currentState = pc.signalingState;
+            console.log('[WebRTC] Current signaling state:', currentState, '- Setting answer from:', fromSid);
+            
+            // answer는 have-local-offer 상태일 때만 설정 가능
+            // (우리가 offer를 보냈고, 상대방이 answer를 보낸 경우)
+            if (currentState === 'stable') {
+                // 이미 stable 상태면 answer가 이미 설정된 것
+                console.log('[WebRTC] ✅ Already in stable state, answer already processed');
+                return;
+            }
+            
+            // answer는 have-local-offer 상태일 때만 설정 가능
+            // (우리가 offer를 보냈고, 상대방이 answer를 보낸 경우)
+            if (currentState === 'have-remote-offer') {
+                // have-remote-offer 상태면 우리가 answer를 생성해야 하는 상황
+                // 이 경우는 handleOffer에서 처리되므로 여기서는 스킵
+                console.log('[WebRTC] ℹ️ In have-remote-offer state - we should create answer, not receive it');
+                return;
+            }
+            
+            if (currentState !== 'have-local-offer') {
+                console.warn('[WebRTC] ⚠️ Wrong signaling state for setting answer:', currentState, '- Expected: have-local-offer');
+                console.warn('[WebRTC] This answer might be for a different negotiation or already processed');
+                return;
+            }
+
+            // answer 형식 보정 (type 속성이 없으면 추가)
+            let answerDesc = answer;
+            if (typeof answer === 'object' && !answer.type) {
+                answerDesc = { type: 'answer', sdp: answer.sdp || answer };
+            }
+
+            await pc.setRemoteDescription(new RTCSessionDescription(answerDesc));
+            console.log('[WebRTC] ✅ Answer set successfully, new state:', pc.signalingState);
+        } catch (error) {
+            // InvalidStateError는 이미 처리된 경우이므로 경고만
+            if (error.name === 'InvalidStateError') {
+                console.warn('[WebRTC] ⚠️ InvalidStateError - Answer already set or wrong state:', pc.signalingState);
+            } else {
+                console.error('[WebRTC] ❌ Error setting answer:', error);
+            }
         }
     }
 
     // ICE candidate 처리
     async handleIceCandidate(fromSid, candidate) {
-        const pc = this.peers[fromSid];
-        if (pc && candidate) {
+        // SOLID: PeerConnectionManager를 통해 가져오기
+        const pc = this.peerConnectionManager.get(fromSid);
+        // candidate가 유효한지 확인 (빈 객체나 sdpMid가 없으면 스킵)
+        if (pc && candidate && (candidate.candidate || candidate.sdpMid)) {
             try {
                 await pc.addIceCandidate(new RTCIceCandidate(candidate));
             } catch (err) {
@@ -323,123 +669,305 @@ export class WebRTCManager {
 
     // 원격 스트림 처리
     handleRemoteStream(fromSid, stream) {
-        console.log('[WebRTC] Handling remote stream from:', fromSid);
-        console.log('[WebRTC] Stream tracks:', stream.getTracks().map(t => ({ kind: t.kind, enabled: t.enabled })));
-
-        // 원격 오디오/비디오 요소 생성
-        let audioEl = document.getElementById(`remote-audio-${fromSid}`);
-        if (!audioEl) {
-            audioEl = document.createElement('audio');
-            audioEl.id = `remote-audio-${fromSid}`;
-            audioEl.autoplay = true;
-            document.body.appendChild(audioEl);
+        if (!stream) {
+            console.warn('[WebRTC] handleRemoteStream called with null stream');
+            return;
         }
-        audioEl.srcObject = stream;
+
+        console.log('[WebRTC] Handling remote stream from:', fromSid);
+        console.log('[WebRTC] Stream tracks:', stream.getTracks().map(t => ({ kind: t.kind, enabled: t.enabled, label: t.label })));
 
         // 원격 스트림 저장 (나중에 화면 공유 보기에 사용)
-        this.remoteStreams[fromSid] = stream;
+        // SOLID: MediaStreamManager를 통해 관리
+        this.mediaStreamManager.setRemoteStream(fromSid, stream);
 
-        // 비디오 트랙이 있으면 화면 공유로 표시
+        // 오디오 트랙 처리
+        const audioTracks = stream.getAudioTracks();
+        if (audioTracks.length > 0) {
+            let audioEl = document.getElementById(`remote-audio-${fromSid}`);
+            if (!audioEl) {
+                audioEl = document.createElement('audio');
+                audioEl.id = `remote-audio-${fromSid}`;
+                audioEl.autoplay = true;
+                audioEl.playsInline = true;
+                document.body.appendChild(audioEl);
+            }
+            audioEl.srcObject = stream;
+            audioEl.play().catch(e => console.error('[WebRTC] Audio play error:', e));
+        }
+
+        // 비디오 트랙이 있으면 즉시 화면 공유로 표시 (Discord 스타일)
         const videoTracks = stream.getVideoTracks();
         console.log('[WebRTC] Video tracks count:', videoTracks.length);
         if (videoTracks.length > 0) {
-            console.log('[WebRTC] Video track found, showing remote screen share');
-            this.showRemoteScreenShare(fromSid, stream);
+            console.log('[WebRTC] 🎥 Video track detected! Immediately showing remote screen share from:', fromSid);
+            console.log('[WebRTC] Video track details:', {
+                id: videoTracks[0].id,
+                label: videoTracks[0].label,
+                enabled: videoTracks[0].enabled,
+                readyState: videoTracks[0].readyState,
+                muted: videoTracks[0].muted
+            });
+            
+            // 사용자 ID 찾기 (fromSid로)
+            const userId = this.findUserIdBySid(fromSid);
+            console.log('[WebRTC] Found userId:', userId, 'for sid:', fromSid);
+            
+            // Discord처럼 즉시 표시 (중복 체크 최소화)
+            const existingContainer = document.getElementById('remote-screen-share-container');
+            const existingVideo = document.getElementById('remote-screen-video');
+            
+            // 같은 스트림이면 스킵 (하지만 트랙이 바뀌었을 수 있으므로 확인)
+            if (existingContainer && existingVideo && existingVideo.srcObject === stream) {
+                const currentTracks = existingVideo.srcObject?.getVideoTracks() || [];
+                const newTracks = stream.getVideoTracks();
+                if (currentTracks.length > 0 && newTracks.length > 0 && currentTracks[0].id === newTracks[0].id) {
+                    console.log('[WebRTC] ⚠️ Same stream already showing, skipping');
+                    return;
+                }
+            }
+            
+            // 즉시 UI 업데이트 (Discord처럼)
+            console.log('[WebRTC] 🚀 Immediately displaying screen share');
+            this.uiController.showRemoteScreenShare(userId || fromSid, stream);
+        } else {
+            console.log('[WebRTC] ⚠️ No video tracks in stream, audio only');
         }
+    }
+
+    // SID로 사용자 ID 찾기 (참가자 목록에서)
+    findUserIdBySid(sid) {
+        if (!sid) return null;
+        
+        const channelId = this.app.serverManager.currentChannel?.id;
+        if (!channelId) {
+            console.log('[WebRTC] No current channel for findUserIdBySid');
+            return null;
+        }
+        
+        // 참가자 목록에서 찾기
+        const participants = this.app.serverManager.voiceParticipants?.[channelId] || [];
+        console.log('[WebRTC] Searching for sid:', sid, 'in', participants.length, 'participants');
+        console.log('[WebRTC] Participants:', participants.map(p => ({ id: p.id, name: p.name, sid: p.sid })));
+        
+        // sid로 직접 찾기
+        let participant = participants.find(p => p.sid === sid);
+        if (participant) {
+            console.log('[WebRTC] ✅ Found participant by sid:', participant.id);
+            return participant.id;
+        }
+        
+        // 캐시에서도 찾기
+        const cachedParticipants = this.app.serverManager.voiceParticipantsCache?.[channelId] || [];
+        participant = cachedParticipants.find(p => p.sid === sid);
+        if (participant) {
+            console.log('[WebRTC] ✅ Found participant in cache by sid:', participant.id);
+            return participant.id;
+        }
+        
+        console.log('[WebRTC] ⚠️ Participant not found for sid:', sid);
+        return null;
     }
 
     // 원격 화면 공유 표시
     showRemoteScreenShare(userId, stream) {
-        console.log('[WebRTC] Showing remote screen share from:', userId);
+        console.log('[WebRTC] 🖥️ showRemoteScreenShare called - userId:', userId, 'stream provided:', !!stream);
 
         // stream이 없으면 저장된 스트림에서 찾기
         let videoStream = stream;
         if (!videoStream) {
-            // userId로 sid 찾기 (remoteStreams에서 비디오 트랙이 있는 스트림 찾기)
-            for (const [sid, s] of Object.entries(this.remoteStreams)) {
-                if (s.getVideoTracks().length > 0) {
+            console.log('[WebRTC] Stream not provided, searching in remoteStreams...');
+            const remoteStreams = this.mediaStreamManager.getAllRemoteStreams();
+            console.log('[WebRTC] Available remote streams (sids):', Object.keys(remoteStreams));
+            
+            // remoteStreams에서 비디오 트랙이 있는 스트림 찾기
+            for (const [sid, s] of Object.entries(remoteStreams)) {
+                if (!s) {
+                    console.log('[WebRTC] ⚠️ Null stream for sid:', sid);
+                    continue;
+                }
+                
+                if (!s.getVideoTracks) {
+                    console.log('[WebRTC] ⚠️ Stream has no getVideoTracks method for sid:', sid);
+                    continue;
+                }
+                
+                const videoTracks = s.getVideoTracks();
+                console.log('[WebRTC] Checking sid:', sid, 'video tracks:', videoTracks.length);
+                
+                if (videoTracks.length > 0) {
+                    console.log('[WebRTC] ✅ Found video stream from sid:', sid, 'tracks:', videoTracks.map(t => t.id));
                     videoStream = s;
                     break;
+                }
+            }
+            
+            // 여전히 없으면 userId로 sid 찾기 시도
+            if (!videoStream && userId) {
+                console.log('[WebRTC] Trying to find stream by userId:', userId);
+                const channelId = this.app.serverManager.currentChannel?.id;
+                const participants = this.app.serverManager.voiceParticipants?.[channelId] || [];
+                console.log('[WebRTC] Participants:', participants.map(p => ({ id: p.id, sid: p.sid })));
+                
+                const participant = participants.find(p => p.id === userId);
+                if (participant && participant.sid) {
+                    console.log('[WebRTC] Found participant sid:', participant.sid);
+                    videoStream = this.mediaStreamManager.getRemoteStream(participant.sid);
+                    if (videoStream) {
+                        const tracks = videoStream.getVideoTracks();
+                        console.log('[WebRTC] ✅ Found video stream by userId:', userId, 'tracks:', tracks.length);
+                    } else {
+                        console.log('[WebRTC] ⚠️ No stream found for participant sid:', participant.sid);
+                    }
+                } else {
+                    console.log('[WebRTC] ⚠️ Participant not found for userId:', userId);
                 }
             }
         }
 
         if (!videoStream) {
-            console.log('[WebRTC] No video stream found');
-            alert('현재 화면 공유 스트림이 없습니다. 먼저 음성 채널에 참여하세요.');
+            console.error('[WebRTC] ❌ No video stream found');
+            const allStreams = this.mediaStreamManager.getAllRemoteStreams();
+            console.log('[WebRTC] Available remote streams:', Object.keys(allStreams));
+            console.log('[WebRTC] Stream details:', Object.entries(allStreams).map(([sid, s]) => ({
+                sid,
+                hasStream: !!s,
+                hasGetVideoTracks: s && typeof s.getVideoTracks === 'function',
+                videoTracks: s && s.getVideoTracks ? s.getVideoTracks().length : 0
+            })));
+            
+            // 🔥 마지막 시도: 모든 peer connection에서 active receiver 확인
+            const peers = this.peerConnectionManager.getAll();
+            console.log('[WebRTC] 🔍 Checking all peer connections for video receivers...');
+            for (const [sid, pc] of Object.entries(peers)) {
+                try {
+                    const receivers = pc.getReceivers();
+                    const videoReceivers = receivers.filter(r => r.track && r.track.kind === 'video' && r.track.readyState === 'live');
+                    if (videoReceivers.length > 0) {
+                        console.log('[WebRTC] ✅ Found live video receiver in peer:', sid);
+                        const videoTrack = videoReceivers[0].track;
+                        const stream = new MediaStream([videoTrack]);
+                        console.log('[WebRTC] 🚀 Creating stream from receiver track');
+                        this.mediaStreamManager.setRemoteStream(sid, stream);
+                        this.showRemoteScreenShare(userId, stream);
+                        return;
+                    }
+                } catch (err) {
+                    console.error('[WebRTC] Error checking receivers for', sid, ':', err);
+                }
+            }
+            
             return;
         }
 
-        let container = document.getElementById('remote-screen-share-container');
-        if (!container) {
-            container = document.createElement('div');
-            container.id = 'remote-screen-share-container';
-            container.className = 'screen-share-container';
-            container.innerHTML = `
-                <div class="screen-share-header">
-                    <span class="screen-share-username">화면 공유 보기</span>
-                    <button class="screen-share-close-btn" id="btn-close-remote-share">✕</button>
-                </div>
-                <div class="screen-share-video-wrapper">
-                    <video id="remote-screen-video" autoplay></video>
-                </div>
-            `;
-            const chatArea = document.querySelector('.chat-content') || document.body;
-            chatArea.prepend(container);
-
-            // 닫기 버튼 이벤트
-            document.getElementById('btn-close-remote-share')?.addEventListener('click', () => {
-                container.remove();
-            });
+        const videoTracks = videoStream.getVideoTracks();
+        if (!videoTracks || videoTracks.length === 0) {
+            console.error('[WebRTC] ❌ No video tracks in stream');
+            return;
         }
 
-        const video = document.getElementById('remote-screen-video');
-        if (video) {
-            video.srcObject = videoStream;
-        }
+        console.log('[WebRTC] ✅ Video stream found with', videoTracks.length, 'track(s)');
+
+        // SOLID: UI 업데이트는 UIController에 위임
+        this.uiController.showRemoteScreenShare(userId, videoStream);
     }
 
-    // P2P 연결 종료
-    closePeerConnection(targetSid) {
-        const pc = this.peers[targetSid];
-        if (pc) {
-            pc.close();
-            delete this.peers[targetSid];
+    // userId로 sid 찾기
+    findSidByUserId(userId) {
+        const channelId = this.app.serverManager.currentChannel?.id;
+        if (!channelId) return null;
+        
+        const participants = this.app.serverManager.voiceParticipants?.[channelId] || [];
+        const participant = participants.find(p => p.id === userId);
+        if (participant && participant.sid) {
+            return participant.sid;
         }
-
-        // 원격 오디오 요소 제거
-        const audioEl = document.getElementById(`remote-audio-${targetSid}`);
-        if (audioEl) audioEl.remove();
+        
+        // 캐시에서도 찾기
+        const cachedParticipants = this.app.serverManager.voiceParticipantsCache?.[channelId] || [];
+        const cachedParticipant = cachedParticipants.find(p => p.id === userId);
+        if (cachedParticipant && cachedParticipant.sid) {
+            return cachedParticipant.sid;
+        }
+        
+        return null;
     }
+
+    // 사용자 ID로 이름 찾기
+    findUserNameByUserId(userId) {
+        const channelId = this.app.serverManager.currentChannel?.id;
+        if (!channelId) return null;
+        
+        const participants = this.app.serverManager.voiceParticipants?.[channelId] || [];
+        const participant = participants.find(p => p.id === userId);
+        return participant?.name || null;
+    }
+
+    // P2P 연결 종료는 위의 closePeerConnection 메서드 사용
+    // 원격 오디오 요소 제거는 removeRemoteVideo에서 처리됨
 
     // 화면 공유 트랙을 모든 P2P 연결에 추가
     addScreenShareToPeers() {
-        if (!this.screenStream) return;
+        if (!this.screenStream) {
+            console.log('[WebRTC] No screen stream to add');
+            return;
+        }
 
         const videoTrack = this.screenStream.getVideoTracks()[0];
-        if (!videoTrack) return;
+        if (!videoTrack) {
+            console.log('[WebRTC] No video track in screen stream');
+            return;
+        }
 
-        Object.entries(this.peers).forEach(([sid, pc]) => {
+        console.log('[WebRTC] Adding screen share track to', Object.keys(this.peers).length, 'peers');
+
+        Object.entries(this.peers).forEach(async ([sid, pc]) => {
             try {
                 // 기존 비디오 트랙 sender가 있으면 교체, 없으면 추가
                 const videoSender = pc.getSenders().find(s => s.track?.kind === 'video');
                 if (videoSender) {
-                    videoSender.replaceTrack(videoTrack);
+                    await videoSender.replaceTrack(videoTrack);
+                    console.log('[WebRTC] Replaced video track for peer:', sid);
                 } else {
                     pc.addTrack(videoTrack, this.screenStream);
+                    console.log('[WebRTC] Added video track for peer:', sid);
                 }
-                console.log('[WebRTC] Added screen share track to peer:', sid);
+                
+                // 트랙 추가 후 renegotiation 필요
+                // onnegotiationneeded 이벤트가 자동으로 트리거되지만, 
+                // 명시적으로 offer 생성하여 빠른 업데이트 보장
+                if (pc.signalingState === 'stable') {
+                    try {
+                        const offer = await pc.createOffer();
+                        await pc.setLocalDescription(offer);
+                        const channelId = this.app.serverManager.currentChannel?.id;
+                        this.app.socketManager.emit('webrtc_offer', {
+                            targetSid: sid,
+                            offer: offer,
+                            channelId: channelId
+                        });
+                        console.log('[WebRTC] Sent renegotiation offer for screen share to:', sid);
+                    } catch (err) {
+                        console.error('[WebRTC] Error creating offer for screen share:', err);
+                    }
+                }
             } catch (err) {
                 console.error('[WebRTC] Error adding screen share to peer:', sid, err);
             }
         });
     }
 
+    // SOLID: 화면 공유 종료는 ScreenShareManager에 위임
     stopScreenShare() {
+        this.screenShareManager.stop();
+        this.uiController.hideScreenSharePreview();
+    }
+
+    stopScreenShareLegacy() {
         console.log('[WebRTC] stopScreenShare called');
 
         // 화면 공유만 종료하고 통화는 유지
-        this.hideScreenSharePreview();
+        this.uiController.hideScreenSharePreview();
 
         // 화면 공유 스트림이 있으면 트랙 중지
         if (this.screenStream) {
@@ -478,7 +1006,27 @@ export class WebRTCManager {
         await this.initiateMedia(false);
     }
 
+    // SOLID: 화면 공유는 ScreenShareManager에 위임
     async startScreenShare() {
+        console.log('[WebRTC] startScreenShare called, isCallActive:', this.isCallActive);
+        
+        // 통화 중이 아니면 화면 공유 불가 (또는 통화 시작)
+        if (!this.isCallActive) {
+            console.log('[WebRTC] Not in call, starting call first...');
+            // 통화 시작
+            await this.startCall();
+        }
+        
+        try {
+            return await this.screenShareManager.start();
+        } catch (error) {
+            console.error('[WebRTC] Error starting screen share:', error);
+            // 에러 발생 시 레거시 메서드로 폴백
+            return this.startScreenShareLegacy();
+        }
+    }
+
+    async startScreenShareLegacy() {
         console.log('[WebRTC] startScreenShare called');
 
         // 통화 중이 아니면 화면 공유 불가
@@ -523,6 +1071,9 @@ export class WebRTCManager {
 
             // 화면 공유 트랙을 기존 연결에 추가
             const videoTrack = this.screenStream.getVideoTracks()[0];
+            if (!videoTrack) {
+                throw new Error('화면 공유 트랙을 가져올 수 없습니다');
+            }
 
             // 채팅 영역에 화면 공유 표시
             this.showScreenSharePreview(this.screenStream);
@@ -545,13 +1096,16 @@ export class WebRTCManager {
             if (stopBtn) stopBtn.style.display = '';
 
             // 다른 참가자들에게 화면 공유 시작 알림
-            this.app.socketManager?.emit('screen_share_started', { channelId });
+            const serverId = this.app.serverManager.currentServer?.id;
+            this.app.socketManager?.emit('screen_share_started', { channelId, serverId });
 
             // 화면 공유 트랙을 기존 P2P 연결에 추가
+            // 기존 연결이 없으면 나중에 참가자가 연결할 때 추가됨
             this.addScreenShareToPeers();
 
             // 화면 공유 종료 시 처리
             videoTrack.onended = () => {
+                console.log('[WebRTC] Screen share track ended by user');
                 this.hideScreenSharePreview();
                 this.screenStream = null;
                 // 참가자 목록에서 화면 공유 표시 제거
@@ -560,7 +1114,11 @@ export class WebRTCManager {
                 }
                 // 컨트롤 바 상태 업데이트
                 this.updateScreenShareStatus(false);
-                if (shareBtn) shareBtn.classList.remove('active');
+                if (shareBtn) {
+                    shareBtn.style.display = '';
+                    shareBtn.classList.remove('active');
+                }
+                if (stopBtn) stopBtn.style.display = 'none';
 
                 // 다른 참가자들에게 화면 공유 종료 알림
                 this.app.socketManager?.emit('screen_share_stopped', { channelId });
@@ -569,6 +1127,11 @@ export class WebRTCManager {
         } catch (err) {
             console.error('[WebRTC] Screen share error:', err);
             this.updateConnectionState("Screen share failed");
+            if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                alert('화면 공유 권한이 거부되었습니다.');
+            } else {
+                alert('화면 공유를 시작할 수 없습니다: ' + err.message);
+            }
         }
     }
 
@@ -665,21 +1228,91 @@ export class WebRTCManager {
         try {
             console.log('[WebRTC] Starting screen share with source:', sourceId);
 
-            this.localStream = await navigator.mediaDevices.getUserMedia({
-                audio: false,
-                video: {
-                    mandatory: {
-                        chromeMediaSource: 'desktop',
-                        chromeMediaSourceId: sourceId
+            // Electron 환경: getUserMedia에 desktopCapturer 소스 ID 전달
+            // 브라우저 환경: getDisplayMedia 사용
+            let screenStream;
+            
+            if (window.electronAPI && sourceId) {
+                // Electron 환경 - desktopCapturer로 선택한 소스 사용
+                console.log('[WebRTC] Using Electron desktopCapturer with sourceId:', sourceId);
+                try {
+                    // Electron의 getUserMedia에 desktopCapturer constraints 전달
+                    // Electron에서는 특별한 constraints 형식이 필요합니다
+                    const constraints = {
+                        audio: false,
+                        video: {
+                            mandatory: {
+                                chromeMediaSource: 'desktop',
+                                chromeMediaSourceId: sourceId
+                            }
+                        }
+                    };
+                    
+                    screenStream = await navigator.mediaDevices.getUserMedia(constraints);
+                    console.log('[WebRTC] Successfully got stream via Electron getUserMedia');
+                } catch (electronErr) {
+                    console.warn('[WebRTC] Electron getUserMedia failed:', electronErr);
+                    console.log('[WebRTC] Error details:', {
+                        name: electronErr?.name,
+                        message: electronErr?.message
+                    });
+                    
+                    // Fallback: getDisplayMedia 시도 (최신 Electron에서 지원)
+                    console.log('[WebRTC] Trying getDisplayMedia as fallback...');
+                    try {
+                        screenStream = await navigator.mediaDevices.getDisplayMedia({
+                            video: { cursor: 'always' },
+                            audio: false
+                        });
+                        console.log('[WebRTC] Successfully got stream via getDisplayMedia');
+                    } catch (displayErr) {
+                        console.error('[WebRTC] All methods failed:', displayErr);
+                        const errorMsg = electronErr?.message || displayErr?.message || '알 수 없는 오류';
+                        throw new Error(`화면 공유를 시작할 수 없습니다: ${errorMsg}`);
                     }
                 }
-            });
+            } else {
+                // 브라우저 환경 또는 sourceId가 없는 경우
+                console.log('[WebRTC] Using getDisplayMedia (browser or no sourceId)');
+                try {
+                    screenStream = await navigator.mediaDevices.getDisplayMedia({
+                        video: { cursor: 'always' },
+                        audio: false
+                    });
+                } catch (err) {
+                    console.error('[WebRTC] getDisplayMedia failed:', err);
+                    throw err;
+                }
+            }
 
-            this.isCallActive = true;
+            if (!screenStream || screenStream.getVideoTracks().length === 0) {
+                throw new Error('화면 공유 스트림을 가져올 수 없습니다');
+            }
+
+            this.screenStream = screenStream;
+
+            // 통화 중이 아니면 통화 시작
+            if (!this.isCallActive) {
+                // 오디오 스트림도 가져오기 (통화 시작)
+                try {
+                    const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    // 오디오 트랙을 화면 스트림에 추가
+                    audioStream.getAudioTracks().forEach(track => {
+                        this.screenStream.addTrack(track);
+                    });
+                } catch (err) {
+                    console.warn('[WebRTC] Could not get audio stream:', err);
+                }
+                this.localStream = this.screenStream;
+                this.isCallActive = true;
+                this.showCallControlBar();
+            } else {
+                // 통화 중이면 화면 스트림만 별도로 저장
+                // 기존 오디오 스트림은 유지
+            }
 
             // 화면 공유 모달에 미리보기 표시
-            this.showScreenSharePreview();
-            this.setupAudioVisualizer(this.localStream);
+            this.showScreenSharePreview(this.screenStream);
 
             // 참가자 목록에 화면 공유 표시
             const userId = this.app.auth?.currentUser?.id;
@@ -701,16 +1334,29 @@ export class WebRTCManager {
             const serverId = this.app.serverManager.currentServer?.id;
             this.app.socketManager.emit('screen_share_started', { channelId, serverId });
 
-            // 화면 스트림을 screenStream에도 저장 (다른 함수에서 사용)
-            this.screenStream = this.localStream;
+            // 통화 중이 아니면 통화 참가
+            if (!this.localStream || !this.localStream.getAudioTracks().length) {
+                // 통화 참가
+                const currentUser = this.app.auth?.currentUser;
+                this.app.socketManager.emit('call_join', {
+                    currentChannelId: channelId,
+                    serverId: serverId,
+                    userId: currentUser?.id,
+                    userName: currentUser?.name || 'User'
+                });
+            }
 
-            // P2P 연결에 화면 공유 트랙 추가
+            // 화면 공유 트랙을 기존 P2P 연결에 추가
+            // 기존 연결이 없으면 나중에 참가자가 연결할 때 추가됨
             this.addScreenShareToPeers();
 
             this.updateConnectionState("Screen Sharing");
 
-            if (this.localStream.getVideoTracks().length > 0) {
-                this.localStream.getVideoTracks()[0].onended = () => {
+            // 화면 공유 종료 처리
+            const videoTrack = this.screenStream.getVideoTracks()[0];
+            if (videoTrack) {
+                videoTrack.onended = () => {
+                    console.log('[WebRTC] Screen share track ended');
                     // 화면 공유 종료 시 상태 업데이트
                     if (channelId && userId) {
                         this.app.serverManager.updateParticipantScreenShare(channelId, userId, false);
@@ -727,6 +1373,7 @@ export class WebRTCManager {
         } catch (err) {
             console.error('[WebRTC] Error starting screen share:', err);
             this.updateConnectionState("Failed to share screen");
+            alert('화면 공유를 시작할 수 없습니다: ' + err.message);
         }
     }
 
@@ -846,8 +1493,23 @@ export class WebRTCManager {
         const videoStream = stream || this.localStream;
         const video = document.getElementById('shared-screen-video');
         if (video && videoStream) {
+            // 기존 재생 중지 및 정리
+            if (video.srcObject) {
+                video.pause();
+                video.srcObject = null;
+            }
+            
+            // 새로운 스트림 설정
             video.srcObject = videoStream;
-            video.play().catch(e => console.error('[WebRTC] Video play error:', e));
+            
+            // 비디오 로드 후 재생
+            video.load();
+            video.play().catch(e => {
+                // AbortError는 무시 (새로운 로드 요청으로 인한 정상적인 중단)
+                if (e.name !== 'AbortError') {
+                    console.error('[WebRTC] Video play error:', e);
+                }
+            });
         }
 
         // 이벤트 바인딩
@@ -1012,7 +1674,8 @@ export class WebRTCManager {
 
         // If already in call, just connect
         const targetSid = data.callerId;
-        if (this.peers[targetSid]) return; // already connected
+        // SOLID: PeerConnectionManager를 통해 확인
+        if (this.peerConnectionManager.exists(targetSid)) return; // already connected
 
         console.log('User joined call:', targetSid);
         await this.createPeerConnection(targetSid, true);
@@ -1047,52 +1710,7 @@ export class WebRTCManager {
         };
     }
 
-    async handleOffer(data) {
-        // data: { sdp, callerId, channelId }
-        const targetSid = data.callerId;
-        console.log('Received offer from:', targetSid);
-
-        // If not in call (e.g. accepted via modal just now or re-negotiating)
-        if (!this.isCallActive) {
-            // Implicitly accept if we receive offer? No, usually handled by join.
-            // But if we are here, we probably joined.
-        }
-
-        const pc = await this.createPeerConnection(targetSid, false);
-        await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-
-        this.app.socketManager.emit('answer', {
-            targetSid: targetSid,
-            sdp: answer,
-            channelId: data.channelId
-        });
-    }
-
-    async handleAnswer(data) {
-        // data: { sdp, callerId }
-        const targetSid = data.callerId;
-        const pc = this.peers[targetSid];
-        if (pc) {
-            console.log('Received answer from:', targetSid);
-            await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-        }
-    }
-
-    async handleIceCandidate(data) {
-        // data: { candidate, callerId }
-        const targetSid = data.callerId;
-        const pc = this.peers[targetSid];
-        if (pc && data.candidate) {
-            try {
-                await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-            } catch (e) {
-                console.error('Error adding received ice candidate', e);
-            }
-        }
-    }
+    // 레거시 핸들러 함수들은 위에 정의된 handleOffer, handleAnswer, handleIceCandidate를 사용
 
     handleUserLeft(data) {
         // data.id (sid)
@@ -1103,8 +1721,13 @@ export class WebRTCManager {
     }
 
     async createPeerConnection(targetSid, isInitiator) {
-        const pc = new RTCPeerConnection(this.iceServers);
-        this.peers[targetSid] = pc;
+        // SOLID: PeerConnectionManager를 통해 생성
+        // 이미 존재하면 반환
+        if (this.peerConnectionManager.exists(targetSid)) {
+            return this.peerConnectionManager.get(targetSid);
+        }
+        
+        const pc = this.peerConnectionManager.create(targetSid, isInitiator);
 
         pc.onicecandidate = (event) => {
             if (event.candidate) {
@@ -1117,8 +1740,45 @@ export class WebRTCManager {
         };
 
         pc.ontrack = (event) => {
-            console.log('Received remote track from:', targetSid);
-            this.addRemoteVideo(targetSid, event.streams[0]);
+            console.log('[WebRTC] 🎬 ontrack event received from (legacy):', targetSid);
+            console.log('[WebRTC] Event details:', {
+                streams: event.streams?.length || 0,
+                track: event.track ? {
+                    kind: event.track.kind,
+                    id: event.track.id,
+                    enabled: event.track.enabled,
+                    readyState: event.track.readyState
+                } : null
+            });
+            
+            // handleRemoteStream을 사용하여 비디오/오디오 트랙을 적절히 처리
+            if (event.streams && event.streams.length > 0) {
+                const stream = event.streams[0];
+                console.log('[WebRTC] ✅ Stream found in ontrack (legacy):', stream.id, 'tracks:', stream.getTracks().map(t => `${t.kind}:${t.id}`));
+                
+                // 중복 처리 방지: 같은 스트림이 이미 처리되었는지 확인
+                const streamId = stream.id || `${targetSid}_${Date.now()}`;
+                const lastTrackKey = `lastTrack_${targetSid}`;
+                
+                // 같은 스트림 ID를 가진 트랙이 최근에 처리되었는지 확인 (1초 내)
+                const now = Date.now();
+                const lastTrackTime = this[`lastTrackTime_${targetSid}`] || 0;
+                if (this[lastTrackKey] === streamId && (now - lastTrackTime) < 1000) {
+                    console.log('[WebRTC] ⚠️ Duplicate track event, skipping');
+                    return;
+                }
+                this[lastTrackKey] = streamId;
+                this[`lastTrackTime_${targetSid}`] = now;
+                
+                this.handleRemoteStream(targetSid, stream);
+            } else if (event.track) {
+                // streams가 없지만 track이 있는 경우 (일부 브라우저)
+                console.log('[WebRTC] ⚠️ No streams but track exists (legacy), creating stream');
+                const stream = new MediaStream([event.track]);
+                this.handleRemoteStream(targetSid, stream);
+            } else {
+                console.warn('[WebRTC] ❌ No streams or track in ontrack event (legacy)');
+            }
         };
 
         // Add local tracks
@@ -1142,11 +1802,8 @@ export class WebRTCManager {
     }
 
     closePeerConnection(sid) {
-        const pc = this.peers[sid];
-        if (pc) {
-            pc.close();
-            delete this.peers[sid];
-        }
+        // SOLID: PeerConnectionManager를 통해 관리
+        this.peerConnectionManager.close(sid);
     }
 
     leaveCall() {
@@ -1175,8 +1832,7 @@ export class WebRTCManager {
         }
 
         // Close all peer connections
-        Object.keys(this.peers).forEach(sid => this.closePeerConnection(sid));
-        this.peers = {};
+        this.peerConnectionManager.closeAll();
 
         // Remove UI
         this.hideCallOverlay();
@@ -1414,6 +2070,22 @@ export class WebRTCManager {
     }
 
     addRemoteVideo(sid, stream) {
+        // video-grid 요소 확인
+        let videoGrid = document.getElementById('video-grid');
+        
+        // video-grid가 없으면 call-overlay 생성
+        if (!videoGrid) {
+            console.log('[WebRTC] video-grid not found, creating call overlay');
+            this.showCallOverlay();
+            videoGrid = document.getElementById('video-grid');
+        }
+        
+        // 여전히 없으면 오류 로그만 남기고 반환
+        if (!videoGrid) {
+            console.error('[WebRTC] Cannot find video-grid element');
+            return;
+        }
+
         let container = document.getElementById(`video-container-${sid}`);
         if (!container) {
             container = document.createElement('div');
@@ -1423,16 +2095,55 @@ export class WebRTCManager {
             const video = document.createElement('video');
             video.srcObject = stream;
             video.autoplay = true;
+            video.playsInline = true;
             video.className = 'video-item';
 
             container.appendChild(video);
-            container.innerHTML += `<div class="video-label">User ${sid.substr(0, 4)}</div>`;
+            const label = document.createElement('div');
+            label.className = 'video-label';
+            label.textContent = `User ${sid.substr(0, 4)}`;
+            container.appendChild(label);
 
-            // Re-attach because innerHTML wiped it
+            // Re-attach video because innerHTML might have wiped it
             const v = container.querySelector('video');
-            v.srcObject = stream;
+            if (v) {
+                // 기존 재생 중지 및 정리
+                if (v.srcObject) {
+                    v.pause();
+                    v.srcObject = null;
+                }
+                
+                v.srcObject = stream;
+                v.load();
+                v.play().catch(e => {
+                    // AbortError는 무시 (새로운 로드 요청으로 인한 정상적인 중단)
+                    if (e.name !== 'AbortError') {
+                        console.error('[WebRTC] Video play error:', e);
+                    }
+                });
+            }
 
-            document.getElementById('video-grid').appendChild(container);
+            videoGrid.appendChild(container);
+            console.log('[WebRTC] Added remote video container for:', sid);
+        } else {
+            // 기존 컨테이너가 있으면 비디오 스트림만 업데이트
+            const video = container.querySelector('video');
+            if (video) {
+                // 기존 재생 중지 및 정리
+                if (video.srcObject) {
+                    video.pause();
+                    video.srcObject = null;
+                }
+                
+                video.srcObject = stream;
+                video.load();
+                video.play().catch(e => {
+                    // AbortError는 무시 (새로운 로드 요청으로 인한 정상적인 중단)
+                    if (e.name !== 'AbortError') {
+                        console.error('[WebRTC] Video play error:', e);
+                    }
+                });
+            }
         }
     }
 

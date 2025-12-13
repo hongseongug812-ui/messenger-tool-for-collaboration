@@ -1,7 +1,11 @@
 
+import { PermissionService } from './application/services/PermissionService.js';
+
 export class ChatManager {
     constructor(app) {
         this.app = app;
+        // Application Layer 서비스 주입 (DIP)
+        this.permissionService = new PermissionService();
         this.messages = {};
         this.loadedMessages = new Set();
         this.pinnedMessages = {};

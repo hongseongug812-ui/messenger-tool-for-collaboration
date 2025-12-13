@@ -68,6 +68,8 @@ function createWindow() {
       contextIsolation: true,
       sandbox: false,
       preload: path.join(__dirname, 'preload.js')
+      // enableBlinkFeatures는 보안 경고를 발생시키므로 제거
+      // getDisplayMedia는 Electron의 최신 버전에서 기본적으로 지원됨
     },
     icon: path.join(__dirname, '../assets/icon.png'),
     show: false // 준비되면 표시

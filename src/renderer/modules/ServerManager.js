@@ -1,3 +1,5 @@
+import { PermissionService } from './application/services/PermissionService.js';
+
 export class ServerManager {
     constructor(app) {
         this.app = app;
@@ -11,6 +13,8 @@ export class ServerManager {
         this.channelContextTarget = null;
         // 음성 채널 참가자 캐시 (채널 리렌더링 후에도 유지)
         this.voiceParticipantsCache = {};  // channelId -> participants[]
+        // Application Layer 서비스 주입 (DIP)
+        this.permissionService = new PermissionService();
         this.bindContextMenuEvents();
         this.bindSidebarButtons();
     }
@@ -75,6 +79,13 @@ export class ServerManager {
             return;
         }
 
+        // Policy를 통한 권한 체크 (DRY: 중복 제거)
+        const userId = this.app.auth.currentUser?.id;
+        if (!this.permissionService.canCreateCategory(this.currentServer, userId)) {
+            this.app.uiManager.showToast('카테고리를 생성할 권한이 없습니다.', 'error');
+            return;
+        }
+
         const categoryName = await this.app.uiManager.showInputDialog('새 카테고리 이름을 입력하세요:');
         if (!categoryName || !categoryName.trim()) return;
 
@@ -100,6 +111,13 @@ export class ServerManager {
     async showCreateChannelDialog() {
         if (!this.currentServer) {
             this.app.uiManager.showToast('서버를 먼저 선택해주세요.', 'warning');
+            return;
+        }
+
+        // Policy를 통한 권한 체크
+        const userId = this.app.auth.currentUser?.id;
+        if (!this.permissionService.canCreateChannel(this.currentServer, userId)) {
+            this.app.uiManager.showToast('채널을 생성할 권한이 없습니다.', 'error');
             return;
         }
 

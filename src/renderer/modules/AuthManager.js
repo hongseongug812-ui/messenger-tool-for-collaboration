@@ -242,7 +242,17 @@ export class AuthManager {
                 body: JSON.stringify(requestBody)
             });
 
-            const data = await response.json();
+            // 응답이 JSON인지 확인
+            let data;
+            const contentType = response.headers.get('content-type');
+            if (contentType && contentType.includes('application/json')) {
+                data = await response.json();
+            } else {
+                // JSON이 아닌 경우 텍스트로 읽기
+                const text = await response.text();
+                console.error('[Auth] Non-JSON response:', text);
+                data = { detail: text || '서버 오류가 발생했습니다.' };
+            }
 
             if (response.status === 403 && data.detail === '2FA code required') {
                 document.getElementById('2fa-code-group').style.display = 'block';
@@ -252,7 +262,9 @@ export class AuthManager {
             }
 
             if (!response.ok) {
-                this.showAuthError('login-form', data.detail || '로그인에 실패했습니다.');
+                const errorMessage = data.detail || data.message || `로그인에 실패했습니다. (${response.status})`;
+                console.error('[Auth] Login failed:', response.status, errorMessage);
+                this.showAuthError('login-form', errorMessage);
                 return;
             }
 
