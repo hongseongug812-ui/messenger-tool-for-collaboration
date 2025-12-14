@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, Depends, Body
 from fastapi.middleware.cors import CORSMiddleware
 import socketio
+from socketio import AsyncRedisManager
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 from shared.database import connect_db, get_collections
@@ -26,8 +27,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Socket.IO
-sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
+# Redis URL from environment variable (default: redis://redis:6379)
+redis_url = os.getenv("REDIS_URL", "redis://redis:6379")
+
+# Socket.IO with Redis Manager for horizontal scaling
+redis_manager = AsyncRedisManager(url=redis_url)
+sio = socketio.AsyncServer(
+    async_mode='asgi',
+    cors_allowed_origins='*',
+    client_manager=redis_manager
+)
 socket_app = socketio.ASGIApp(sio, app)
 
 # Online users tracking

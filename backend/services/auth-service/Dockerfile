@@ -2,11 +2,15 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY backend/requirements.txt .
+# Copy shared requirements and install dependencies
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY backend/shared /app/shared
-COPY backend/services/auth-service/app /app/app
+# Copy shared module
+COPY shared /app/shared
+
+# Copy service-specific code
+COPY services/auth-service/app /app/app
 
 ENV PYTHONPATH=/app
 

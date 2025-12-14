@@ -17,6 +17,32 @@ export class ServerManager {
         this.permissionService = new PermissionService();
         this.bindContextMenuEvents();
         this.bindSidebarButtons();
+        this.subscribeToEvents();
+    }
+
+    /**
+     * EventBus 이벤트 구독
+     */
+    subscribeToEvents() {
+        // 멤버 참가 이벤트
+        this.app.eventBus.on('MEMBER_JOINED', (data) => {
+            this.handleMemberJoined(data);
+        });
+
+        // 멤버 퇴장 이벤트
+        this.app.eventBus.on('MEMBER_LEFT', (data) => {
+            this.handleMemberLeft(data);
+        });
+
+        // 사용자 상태 변경 이벤트
+        this.app.eventBus.on('USER_STATUS_CHANGED', (data) => {
+            this.handleUserStatusChanged(data);
+        });
+
+        // 음성 상태 업데이트 이벤트
+        this.app.eventBus.on('VOICE_STATE_UPDATE', (data) => {
+            this.handleVoiceStateUpdate(data);
+        });
     }
 
     bindSidebarButtons() {
@@ -1010,6 +1036,17 @@ export class ServerManager {
 
         // 캐시에 저장 (나중에 복원 가능)
         this.voiceParticipantsCache[channelId] = participants;
+        
+        // 🔥 참가자 매핑 저장 (WebRTCManager의 userSocketMap과 socketUserMap에 저장)
+        if (this.app.webRTCManager && participants) {
+            participants.forEach(participant => {
+                if (participant.id && participant.sid) {
+                    this.app.webRTCManager.userSocketMap[participant.sid] = participant.id;
+                    this.app.webRTCManager.socketUserMap[participant.id] = participant.sid;
+                    console.log('[ServerManager] ✅ Saved participant mapping:', participant.id, '<->', participant.sid);
+                }
+            });
+        }
 
         const container = document.getElementById(`voice-participants-${channelId}`);
         console.log('[ServerManager] Container found:', container);
@@ -1034,10 +1071,20 @@ export class ServerManager {
             `;
 
             // 화면 공유 보기 버튼 클릭 이벤트
+            // 🔥 참고: 로컬 유저(나)의 화면 공유 버튼을 클릭하면 원격 스트림 검색을 하지 않고,
+            // 로컬 스트림 미리보기가 이미 표시되어 있으므로 showRemoteScreenShare는 로컬 유저를 구분하여 처리합니다.
             if (p.isScreenSharing) {
                 const viewBtn = participantEl.querySelector('.screen-share-view-btn');
                 viewBtn?.addEventListener('click', (e) => {
                     e.stopPropagation();
+                    // 로컬 유저인지 확인 (선택적 - showRemoteScreenShare에서도 확인하지만 여기서도 체크 가능)
+                    const currentUserId = this.app.auth?.currentUser?.id;
+                    if (p.id === currentUserId) {
+                        console.log('[ServerManager] ℹ️ Local user screen share button clicked - local preview already shown');
+                        // 로컬 유저는 이미 미리보기가 표시되어 있으므로 추가 작업 불필요
+                        return;
+                    }
+                    // 원격 유저의 화면 공유 보기
                     this.app.webRTCManager?.showRemoteScreenShare(p.id, null);
                 });
             }

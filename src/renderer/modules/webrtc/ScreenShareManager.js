@@ -41,34 +41,95 @@ export class ScreenShareManager {
         let screenStream;
 
         if (window.electronAPI && sourceId) {
-            console.log('[ScreenShare] Using Electron desktopCapturer with sourceId:', sourceId);
+            // 🔍 Source ID 확인 로그 추가
+            console.log('[ScreenShare] 📋 Source ID 확인:');
+            console.log('  - sourceId type:', typeof sourceId);
+            console.log('  - sourceId value:', sourceId);
+            console.log('  - sourceId length:', sourceId?.length);
+            console.log('  - sourceId is string:', typeof sourceId === 'string');
+            console.log('  - sourceId is truthy:', !!sourceId);
+            
+            if (!sourceId || typeof sourceId !== 'string' || sourceId.trim() === '') {
+                console.error('[ScreenShare] ❌ Invalid sourceId:', sourceId);
+                throw new Error('유효하지 않은 화면 소스 ID입니다.');
+            }
+            
+            console.log('[ScreenShare] ✅ Source ID 검증 완료, getUserMedia 호출 직전');
+            
             try {
                 if (window.electronAPI.getDisplayMediaStream) {
                     screenStream = await window.electronAPI.getDisplayMediaStream(sourceId);
                 } else {
+                    // Electron Constraints 문법 수정 (mandatory 안에 해상도 포함)
                     const constraints = {
                         audio: false,
                         video: {
                             mandatory: {
                                 chromeMediaSource: 'desktop',
-                                chromeMediaSourceId: sourceId
+                                chromeMediaSourceId: sourceId, // 검증된 sourceId 사용
+                                minWidth: 1280,
+                                maxWidth: 1920,
+                                minHeight: 720,
+                                maxHeight: 1080
                             }
                         }
                     };
+                    
+                    console.log('[ScreenShare] 📤 getUserMedia 호출, constraints:', JSON.stringify(constraints, null, 2));
                     screenStream = await navigator.mediaDevices.getUserMedia(constraints);
+                    console.log('[ScreenShare] ✅ getUserMedia 성공, stream:', screenStream);
+                    
+                    // 스트림 검증
+                    if (!screenStream) {
+                        throw new Error('스트림을 가져올 수 없습니다.');
+                    }
+                    
+                    const videoTracks = screenStream.getVideoTracks();
+                    if (!videoTracks || videoTracks.length === 0) {
+                        throw new Error('비디오 트랙을 찾을 수 없습니다.');
+                    }
+                    
+                    console.log('[ScreenShare] ✅ Video track 확인:', {
+                        trackId: videoTracks[0].id,
+                        label: videoTracks[0].label,
+                        enabled: videoTracks[0].enabled,
+                        readyState: videoTracks[0].readyState
+                    });
                 }
             } catch (electronErr) {
                 console.warn('[ScreenShare] Electron method failed:', electronErr);
-                screenStream = await navigator.mediaDevices.getDisplayMedia({
-                    video: { cursor: 'always' },
-                    audio: false
-                });
+                // Electron에서 실패하면 getDisplayMedia 시도 (최신 Electron에서 지원)
+                try {
+                    screenStream = await navigator.mediaDevices.getDisplayMedia({
+                        video: { 
+                            cursor: 'always',
+                            width: { ideal: 1920 },
+                            height: { ideal: 1080 },
+                            frameRate: { ideal: 30 }
+                        },
+                        audio: false
+                    });
+                } catch (displayErr) {
+                    console.error('[ScreenShare] getDisplayMedia also failed:', displayErr);
+                    throw new Error(`화면 공유를 시작할 수 없습니다: ${displayErr.message || electronErr.message}`);
+                }
             }
         } else {
-            screenStream = await navigator.mediaDevices.getDisplayMedia({
-                video: { cursor: 'always' },
-                audio: false
-            });
+            // 브라우저 환경
+            try {
+                screenStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: { 
+                        cursor: 'always',
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 },
+                        frameRate: { ideal: 30 }
+                    },
+                    audio: false
+                });
+            } catch (err) {
+                console.error('[ScreenShare] getDisplayMedia failed:', err);
+                throw new Error(`화면 공유를 시작할 수 없습니다: ${err.message}`);
+            }
         }
 
         this.mediaStreamManager.setScreenStream(screenStream);
@@ -124,13 +185,15 @@ export class ScreenShareManager {
             this.mediaStreamManager.stopScreenStream();
         }
 
-        // 모든 피어에서 화면 공유 트랙 제거
+        // 모든 피어에서 화면 공유 트랙만 제거 (카메라는 유지)
         const peers = this.peerConnectionManager.getAll();
         Object.keys(peers).forEach(sid => {
             const pc = peers[sid];
             if (pc && pc.senders) {
+                const screenTrack = this.mediaStreamManager.getScreenStream()?.getVideoTracks()[0];
                 pc.getSenders().forEach(sender => {
-                    if (sender.track && sender.track.kind === 'video') {
+                    // 화면 공유 트랙만 제거 (카메라 트랙은 유지)
+                    if (sender.track && sender.track.id === screenTrack?.id) {
                         pc.removeTrack(sender);
                     }
                 });
@@ -170,6 +233,39 @@ export class ScreenShareManager {
         const peerEntries = Object.entries(peers);
         
         console.log('[ScreenShare] 🚀 Adding screen share to', peerEntries.length, 'peers');
+        
+        // 🔥 핵심: peer connection이 없으면 생성해야 함
+        if (peerEntries.length === 0) {
+            console.log('[ScreenShare] ⚠️ No peer connections found, waiting for connections...');
+            // 통화 참가자 목록에서 peer connection 생성
+            const channelId = this.serverManager.currentChannel?.id;
+            if (channelId && this.app && this.app.webRTCManager) {
+                const participants = this.serverManager.voiceParticipants?.[channelId] || [];
+                console.log('[ScreenShare] Found', participants.length, 'participants');
+                
+                // 자신을 제외한 참가자들에게 peer connection 생성
+                const currentUser = this.app.auth?.currentUser;
+                const otherParticipants = participants.filter(p => p.id !== currentUser?.id && p.sid);
+                
+                if (otherParticipants.length > 0) {
+                    console.log('[ScreenShare] Creating peer connections for', otherParticipants.length, 'participants');
+                    for (const participant of otherParticipants) {
+                        if (!this.peerConnectionManager.exists(participant.sid)) {
+                            console.log('[ScreenShare] Creating peer connection to:', participant.sid);
+                            await this.app.webRTCManager.createPeerConnection(participant.sid, true);
+                        }
+                    }
+                    // peer 목록 다시 가져오기
+                    const updatedPeers = this.peerConnectionManager.getAll();
+                    const updatedEntries = Object.entries(updatedPeers);
+                    console.log('[ScreenShare] Now have', updatedEntries.length, 'peer connections');
+                    
+                    // 업데이트된 peer 목록으로 계속 진행
+                    peerEntries.length = 0;
+                    peerEntries.push(...updatedEntries);
+                }
+            }
+        }
 
         // 모든 피어에 동시에 처리 (Discord처럼 즉시)
         await Promise.all(peerEntries.map(async ([sid, pc]) => {
@@ -180,42 +276,35 @@ export class ScreenShareManager {
 
             try {
                 const senders = pc.getSenders();
-                const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+                // 화면 공유 트랙이 이미 추가되어 있는지 확인
+                const existingScreenSender = senders.find(s => 
+                    s.track && s.track.kind === 'video' && s.track.id === videoTrack.id
+                );
                 
-                if (videoSender) {
-                    // 기존 비디오 트랙 교체 (Discord는 즉시 교체)
-                    console.log('[ScreenShare] Replacing video track for:', sid);
-                    await videoSender.replaceTrack(videoTrack);
-                    console.log('[ScreenShare] ✅ Track replaced for:', sid);
-                } else {
-                    // 새 비디오 트랙 추가
-                    console.log('[ScreenShare] Adding new video track for:', sid);
+                if (!existingScreenSender) {
+                    // 화면 공유 트랙을 별도 트랙으로 추가 (카메라와 함께)
+                    console.log('[ScreenShare] Adding screen share track as separate track for:', sid);
                     pc.addTrack(videoTrack, screenStream);
-                    console.log('[ScreenShare] ✅ Track added for:', sid);
-                }
-
-                // Discord처럼 즉시 재협상 (상태와 관계없이)
-                console.log('[ScreenShare] 🔄 Triggering renegotiation for:', sid, 'state:', pc.signalingState);
-                
-                try {
-                    // offer 생성 전에 트랙이 제대로 추가되었는지 확인
-                    const senders = pc.getSenders();
-                    const videoSenders = senders.filter(s => s.track && s.track.kind === 'video');
-                    console.log('[ScreenShare] Video senders count:', videoSenders.length);
+                    console.log('[ScreenShare] ✅ Screen share track added (camera remains active)');
                     
-                    const offer = await pc.createOffer();
-                    console.log('[ScreenShare] Offer created, SDP contains video:', offer.sdp.includes('m=video'));
-                    await pc.setLocalDescription(offer);
-                    
-                    const channelId = this.serverManager.currentChannel?.id;
-                    this.socketManager.emit('webrtc_offer', {
-                        targetSid: sid,
-                        offer: offer,
-                        channelId: channelId
-                    });
-                    console.log('[ScreenShare] ✅ Offer sent for:', sid);
-                } catch (err) {
-                    console.error('[ScreenShare] ❌ Error creating/sending offer for', sid, ':', err);
+                    // 재협상: stable 상태일 때만
+                    if (pc.signalingState === 'stable') {
+                        try {
+                            const offer = await pc.createOffer();
+                            await pc.setLocalDescription(offer);
+                            const channelId = this.serverManager.currentChannel?.id;
+                            this.socketManager.emit('webrtc_offer', {
+                                targetSid: sid,
+                                offer: offer,
+                                channelId: channelId
+                            });
+                            console.log('[ScreenShare] ✅ Renegotiation offer sent');
+                        } catch (err) {
+                            console.error('[ScreenShare] Error renegotiating:', err);
+                        }
+                    }
+                } else {
+                    console.log('[ScreenShare] Screen share track already exists for:', sid);
                 }
             } catch (err) {
                 console.error('[ScreenShare] ❌ Error processing peer', sid, ':', err);
@@ -316,6 +405,22 @@ export class ScreenShareManager {
         modal.querySelectorAll('.source-item').forEach(item => {
             item.onclick = async () => {
                 const sourceId = item.dataset.id;
+                
+                // 🔍 Source ID 확인 로그 (소스 선택 시점)
+                console.log('[ScreenShare] 📋 Source 선택됨:');
+                console.log('  - 선택된 sourceId:', sourceId);
+                console.log('  - sourceId type:', typeof sourceId);
+                console.log('  - sourceId length:', sourceId?.length);
+                
+                if (!sourceId || typeof sourceId !== 'string' || sourceId.trim() === '') {
+                    console.error('[ScreenShare] ❌ Invalid sourceId from picker:', sourceId);
+                    if (this.app?.uiManager?.showToast) {
+                        this.app.uiManager.showToast('유효하지 않은 화면 소스입니다.', 'error');
+                    }
+                    modal.remove();
+                    return;
+                }
+                
                 modal.remove();
                 await this.startWithSource(sourceId);
             };

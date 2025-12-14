@@ -44,33 +44,62 @@ export class ChatManager {
 
     init() {
         this.bindEvents();
+        this.subscribeToEvents();
     }
 
-    bindEvents() {
-        const input = document.getElementById('message-input');
-        const sendBtn = document.getElementById('send-btn');
+    /**
+     * EventBus 이벤트 구독
+     */
+    subscribeToEvents() {
+        // 메시지 수신 이벤트
+        this.app.eventBus.on('MESSAGE_RECEIVED', (data) => {
+            this.handleMessageReceived(data);
+        });
 
-        if (input) {
-            input.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    this.sendMessage();
-                }
-            });
+        // 알림 수신 이벤트
+        this.app.eventBus.on('NOTIFICATION_RECEIVED', (data) => {
+            this.handleNotificationReceived(data);
+        });
 
-            input.addEventListener('input', () => {
-                if (sendBtn) {
-                    sendBtn.disabled = input.value.trim() === '' && this.attachedFiles.length === 0;
-                }
-                // Auto-resize logic could go here
-                input.style.height = 'auto';
-                input.style.height = input.scrollHeight + 'px';
-            });
-        }
+        // 메시지 삭제 이벤트
+        this.app.eventBus.on('MESSAGE_DELETED', (data) => {
+            this.handleMessageDeleted(data);
+        });
 
-        if (sendBtn) {
-            sendBtn.addEventListener('click', () => this.sendMessage());
-        }
+        // 타이핑 시작 이벤트
+        this.app.eventBus.on('TYPING_START', (data) => {
+            this.handleTypingStart(data);
+        });
+
+        // 타이핑 중지 이벤트
+        this.app.eventBus.on('TYPING_STOP', (data) => {
+            this.handleTypingStop(data);
+        });
+
+        // 사용자 읽음 상태 업데이트
+        this.app.eventBus.on('USER_READ_UPDATE', (data) => {
+            this.handleUserReadUpdate(data);
+        });
+
+        // 리마인더 알림
+        this.app.eventBus.on('REMINDER_NOTIFICATION', (data) => {
+            this.handleReminderNotification(data);
+        });
+
+        // 투표 이벤트
+        this.app.eventBus.on('POLL_VOTE', (data) => {
+            this.applyPollVote(data);
+        });
+
+        // 반응 추가
+        this.app.eventBus.on('REACTION_ADDED', (data) => {
+            this.handleReactionAdded(data);
+        });
+
+        // 반응 제거
+        this.app.eventBus.on('REACTION_REMOVED', (data) => {
+            this.handleReactionRemoved(data);
+        });
     }
 
     async switchChannel(channel) {

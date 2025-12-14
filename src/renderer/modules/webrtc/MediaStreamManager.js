@@ -6,7 +6,8 @@ export class MediaStreamManager {
     constructor() {
         this.localStream = null;
         this.screenStream = null;
-        this.remoteStreams = {}; // sid -> MediaStream
+        this.remoteStreams = {}; // sid -> MediaStream (카메라 스트림)
+        this.remoteScreenStreams = {}; // sid -> MediaStream (화면 공유 스트림)
     }
 
     /**
@@ -31,10 +32,16 @@ export class MediaStreamManager {
      * 원격 스트림 저장
      * @param {string} sid - Socket ID
      * @param {MediaStream} stream - 미디어 스트림
+     * @param {boolean} isScreenShare - 화면 공유 스트림인지 여부
      */
-    setRemoteStream(sid, stream) {
-        this.remoteStreams[sid] = stream;
-        console.log('[MediaStream] Remote stream set for:', sid);
+    setRemoteStream(sid, stream, isScreenShare = false) {
+        if (isScreenShare) {
+            this.remoteScreenStreams[sid] = stream;
+            console.log('[MediaStream] Remote screen stream set for:', sid);
+        } else {
+            this.remoteStreams[sid] = stream;
+            console.log('[MediaStream] Remote stream set for:', sid);
+        }
     }
 
     /**
@@ -56,10 +63,23 @@ export class MediaStreamManager {
     /**
      * 원격 스트림 가져오기
      * @param {string} sid - Socket ID
+     * @param {boolean} isScreenShare - 화면 공유 스트림인지 여부
      * @returns {MediaStream|null}
      */
-    getRemoteStream(sid) {
+    getRemoteStream(sid, isScreenShare = false) {
+        if (isScreenShare) {
+            return this.remoteScreenStreams[sid] || null;
+        }
         return this.remoteStreams[sid] || null;
+    }
+    
+    /**
+     * 원격 화면 공유 스트림 가져오기
+     * @param {string} sid - Socket ID
+     * @returns {MediaStream|null}
+     */
+    getRemoteScreenStream(sid) {
+        return this.remoteScreenStreams[sid] || null;
     }
 
     /**
@@ -68,6 +88,14 @@ export class MediaStreamManager {
      */
     getAllRemoteStreams() {
         return { ...this.remoteStreams };
+    }
+
+    /**
+     * 모든 원격 화면 공유 스트림 가져오기
+     * @returns {Object} sid -> MediaStream 맵
+     */
+    getAllRemoteScreenStreams() {
+        return { ...this.remoteScreenStreams };
     }
 
     /**
@@ -102,13 +130,23 @@ export class MediaStreamManager {
     /**
      * 원격 스트림 제거
      * @param {string} sid - Socket ID
+     * @param {boolean} isScreenShare - 화면 공유 스트림인지 여부
      */
-    removeRemoteStream(sid) {
-        const stream = this.remoteStreams[sid];
-        if (stream) {
-            this.stopStream(stream);
-            delete this.remoteStreams[sid];
-            console.log('[MediaStream] Remote stream removed:', sid);
+    removeRemoteStream(sid, isScreenShare = false) {
+        if (isScreenShare) {
+            const stream = this.remoteScreenStreams[sid];
+            if (stream) {
+                this.stopStream(stream);
+                delete this.remoteScreenStreams[sid];
+                console.log('[MediaStream] Remote screen stream removed:', sid);
+            }
+        } else {
+            const stream = this.remoteStreams[sid];
+            if (stream) {
+                this.stopStream(stream);
+                delete this.remoteStreams[sid];
+                console.log('[MediaStream] Remote stream removed:', sid);
+            }
         }
     }
 
@@ -117,7 +155,10 @@ export class MediaStreamManager {
      */
     clearRemoteStreams() {
         Object.keys(this.remoteStreams).forEach(sid => {
-            this.removeRemoteStream(sid);
+            this.removeRemoteStream(sid, false);
+        });
+        Object.keys(this.remoteScreenStreams).forEach(sid => {
+            this.removeRemoteStream(sid, true);
         });
     }
 

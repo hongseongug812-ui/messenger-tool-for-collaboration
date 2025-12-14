@@ -11,6 +11,53 @@ services:
       - mongodb_data:/data/db
     networks:
       - messenger-network
+    environment:
+      - MONGO_INITDB_DATABASE=work_messenger
+
+  # Redis (Socket.IO 메시지 브로커 및 캐싱)
+  redis:
+    image: redis:7.0-alpine
+    container_name: messenger-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - messenger-network
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Coturn (TURN Server for WebRTC)
+  coturn:
+    image: coturn/coturn:latest
+    container_name: messenger-coturn
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "49152-65535:49152-65535/udp"
+    networks:
+      - messenger-network
+    environment:
+      - TURN_USERNAME=${TURN_USERNAME:-turnuser}
+      - TURN_PASSWORD=${TURN_PASSWORD:-turnpass}
+      - REALM=${TURN_REALM:-messenger.local}
+    command: |
+      -n
+      --log-file=stdout
+      --listening-port=3478
+      --min-port=49152
+      --max-port=65535
+      --fingerprint
+      --lt-cred-mech
+      --user=${TURN_USERNAME:-turnuser}:${TURN_PASSWORD:-turnpass}
+      --realm=${TURN_REALM:-messenger.local}
+      --no-cli
+      --no-tls
+      --no-dtls
 
   # API Gateway (Port 8000)
   gateway:
@@ -21,6 +68,7 @@ services:
     ports:
       - "8000:8000"
     environment:
+      # Service URLs
       - AUTH_SERVICE_URL=http://auth-service:8001
       - USER_SERVICE_URL=http://user-service:8002
       - MESSAGING_SERVICE_URL=http://messaging-service:8003
@@ -28,6 +76,10 @@ services:
       - NOTIFICATION_SERVICE_URL=http://notification-service:8005
       - FILE_SERVICE_URL=http://file-service:8006
       - AI_SERVICE_URL=http://ai-service:8007
+      # Shared Environment Variables
+      - MONGO_URI=mongodb://mongodb:27017
+      - MONGO_DB=work_messenger
+      - REDIS_URL=redis://redis:6379
     depends_on:
       - auth-service
       - user-service
@@ -36,6 +88,7 @@ services:
       - notification-service
       - file-service
       - ai-service
+      - redis
     networks:
       - messenger-network
 
@@ -48,11 +101,15 @@ services:
     ports:
       - "8001:8001"
     environment:
+      # Shared Environment Variables
       - MONGO_URI=mongodb://mongodb:27017
       - MONGO_DB=work_messenger
+      - REDIS_URL=redis://redis:6379
+      # Service-specific
       - SECRET_KEY=${SECRET_KEY}
     depends_on:
       - mongodb
+      - redis
     networks:
       - messenger-network
 
@@ -65,11 +122,15 @@ services:
     ports:
       - "8002:8002"
     environment:
+      # Shared Environment Variables
       - MONGO_URI=mongodb://mongodb:27017
       - MONGO_DB=work_messenger
+      - REDIS_URL=redis://redis:6379
+      # Service-specific
       - SECRET_KEY=${SECRET_KEY}
     depends_on:
       - mongodb
+      - redis
     networks:
       - messenger-network
 
@@ -82,12 +143,16 @@ services:
     ports:
       - "8003:8003"
     environment:
+      # Shared Environment Variables
       - MONGO_URI=mongodb://mongodb:27017
       - MONGO_DB=work_messenger
+      - REDIS_URL=redis://redis:6379
+      # Service-specific
       - SECRET_KEY=${SECRET_KEY}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY}
     depends_on:
       - mongodb
+      - redis
     networks:
       - messenger-network
 
@@ -100,11 +165,15 @@ services:
     ports:
       - "8004:8004"
     environment:
+      # Shared Environment Variables
       - MONGO_URI=mongodb://mongodb:27017
       - MONGO_DB=work_messenger
+      - REDIS_URL=redis://redis:6379
+      # Service-specific
       - SECRET_KEY=${SECRET_KEY}
     depends_on:
       - mongodb
+      - redis
     networks:
       - messenger-network
 
@@ -117,11 +186,15 @@ services:
     ports:
       - "8005:8005"
     environment:
+      # Shared Environment Variables
       - MONGO_URI=mongodb://mongodb:27017
       - MONGO_DB=work_messenger
+      - REDIS_URL=redis://redis:6379
+      # Service-specific
       - SECRET_KEY=${SECRET_KEY}
     depends_on:
       - mongodb
+      - redis
     networks:
       - messenger-network
 
@@ -134,9 +207,17 @@ services:
     ports:
       - "8006:8006"
     environment:
+      # Shared Environment Variables
+      - MONGO_URI=mongodb://mongodb:27017
+      - MONGO_DB=work_messenger
+      - REDIS_URL=redis://redis:6379
+      # Service-specific
       - UPLOAD_DIR=/uploads
     volumes:
       - uploads_data:/uploads
+    depends_on:
+      - mongodb
+      - redis
     networks:
       - messenger-network
 
@@ -149,16 +230,22 @@ services:
     ports:
       - "8007:8007"
     environment:
+      # Shared Environment Variables
       - MONGO_URI=mongodb://mongodb:27017
+      - MONGO_DB=work_messenger
+      - REDIS_URL=redis://redis:6379
+      # Service-specific
       - SECRET_KEY=${SECRET_KEY}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
     depends_on:
       - mongodb
+      - redis
     networks:
       - messenger-network
 
 volumes:
   mongodb_data:
+  redis_data:
   uploads_data:
 
 networks:

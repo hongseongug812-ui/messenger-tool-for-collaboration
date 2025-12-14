@@ -18,76 +18,146 @@ export class SignalingHandler {
      * @param {Object} offer - SDP Offer
      */
     async handleOffer(fromSid, offer) {
-        console.log('[Signaling] handleOffer from:', fromSid, 'offer:', offer);
+        console.log('='.repeat(60));
+        console.log('[Signaling] 🔔 handleOffer CALLED');
+        console.log('[Signaling] 📨 Offer received from sid:', fromSid);
+        console.log('[Signaling] 📨 Offer type:', offer?.type);
+        console.log('[Signaling] 📨 Offer has SDP:', !!offer?.sdp);
+        console.log('='.repeat(60));
 
         if (!offer) {
-            console.error('[Signaling] Invalid offer: null or undefined');
+            console.error('[Signaling] ❌ Invalid offer: null or undefined');
             return;
         }
 
         try {
             // 기존 peer connection이 있는지 확인
             let pc = this.peerConnectionManager.get(fromSid);
-            
-            // 기존 연결이 있고 stable 상태가 아니면 재생성 또는 대기
+
+            if (pc && pc.signalingState === 'have-local-offer') {
+                return; // 이미 offer 보냄, answer 대기 중
+            }
             if (pc && pc.signalingState !== 'stable') {
-                console.warn('[Signaling] ⚠️ Existing peer connection in wrong state:', pc.signalingState);
-                // have-local-offer 상태면 우리가 offer를 보낸 상태이므로 answer를 기다려야 함
-                if (pc.signalingState === 'have-local-offer') {
-                    console.log('[Signaling] ℹ️ Already sent offer, waiting for answer. Ignoring incoming offer.');
-                    return;
-                }
-                // 다른 상태면 연결을 재생성
-                console.log('[Signaling] Recreating peer connection due to wrong state');
                 this.peerConnectionManager.close(fromSid);
                 pc = null;
             }
-            
+
             // peer connection이 없으면 생성
             if (!pc) {
                 pc = this.peerConnectionManager.create(fromSid, false);
-                
-                // 로컬 스트림 추가 (화면 공유 포함)
+
+                // 🔥 Transceiver 추가: 영상 수신 준비 명시
+                try {
+                    pc.addTransceiver('video', { direction: 'recvonly' });
+                    pc.addTransceiver('audio', { direction: 'recvonly' });
+                    console.log('[Signaling] ✅ Added transceivers (recvonly) for video and audio');
+                } catch (err) {
+                    console.warn('[Signaling] ⚠️ Error adding transceivers (may already exist):', err);
+                }
+
+                // 🔥 Connection 상태 모니터링
+                pc.oniceconnectionstatechange = () => {
+                    console.log('[Signaling] 🧊 ICE State:', pc.iceConnectionState, 'for peer:', fromSid);
+                    if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+                        console.error('[Signaling] ❌ ICE connection failed or disconnected for:', fromSid);
+                    } else if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+                        console.log('[Signaling] ✅ ICE connection established for:', fromSid);
+                    }
+                };
+
+                pc.onconnectionstatechange = () => {
+                    console.log('[Signaling] 🔗 Connection State:', pc.connectionState, 'for peer:', fromSid);
+                    if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+                        console.error('[Signaling] ❌ Connection failed or disconnected for:', fromSid);
+                    } else if (pc.connectionState === 'connected') {
+                        console.log('[Signaling] ✅ Connection established for:', fromSid);
+                    }
+                };
+
+                // 로컬 스트림 추가 (카메라 + 마이크)
                 const localStream = this.mediaStreamManager.getLocalStream();
                 if (localStream) {
                     localStream.getTracks().forEach(track => {
                         pc.addTrack(track, localStream);
                     });
-                    console.log('[Signaling] ✅ Added local stream tracks to new peer connection');
+                    console.log('[Signaling] ✅ Added local stream (camera + mic) to new peer connection');
                 }
-                
-                // 화면 공유 스트림도 추가
+
+                // 화면 공유 스트림도 별도 트랙으로 추가
                 const screenStream = this.mediaStreamManager.getScreenStream();
                 if (screenStream && screenStream !== localStream) {
                     screenStream.getVideoTracks().forEach(track => {
                         pc.addTrack(track, screenStream);
                     });
-                    console.log('[Signaling] ✅ Added screen share tracks to new peer connection');
+                    console.log('[Signaling] ✅ Added screen share track as separate track to new peer connection');
                 }
-                
+
                 // 🔥 핵심: ontrack 이벤트 핸들러 설정 (스트림 수신 처리)
                 pc.ontrack = (event) => {
+                    console.log('========================================');
+                    console.log('[Signaling] 📥 TRACK EVENT FIRED!');
                     console.log('[Signaling] 🎬 ontrack event received from:', fromSid);
+                    console.log('[Signaling] 📥 Track received from', fromSid, ':', {
+                        streams: event.streams?.length || 0,
+                        trackKind: event.track?.kind,
+                        trackId: event.track?.id,
+                        trackLabel: event.track?.label,
+                        trackEnabled: event.track?.enabled,
+                        trackReadyState: event.track?.readyState
+                    });
+
+                    let stream = null;
+
                     if (event.streams && event.streams.length > 0) {
-                        const stream = event.streams[0];
-                        console.log('[Signaling] ✅ Stream received, processing...');
-                        if (this.webRTCManager && this.webRTCManager.handleRemoteStream) {
-                            this.webRTCManager.handleRemoteStream(fromSid, stream);
-                        } else {
-                            // Fallback: 직접 저장
-                            this.mediaStreamManager.setRemoteStream(fromSid, stream);
-                            console.log('[Signaling] ⚠️ WebRTCManager not available, stream saved directly');
-                        }
+                        stream = event.streams[0];
+                        console.log('[Signaling] 📥 Stream received from', fromSid, ':', stream);
+                        console.log('[Signaling] ✅ Stream found in event.streams[0]:', {
+                            streamId: stream.id,
+                            active: stream.active,
+                            tracks: stream.getTracks().map(t => `${t.kind}:${t.id}(${t.label})`)
+                        });
                     } else if (event.track) {
-                        const stream = new MediaStream([event.track]);
-                        if (this.webRTCManager && this.webRTCManager.handleRemoteStream) {
-                            this.webRTCManager.handleRemoteStream(fromSid, stream);
-                        } else {
-                            this.mediaStreamManager.setRemoteStream(fromSid, stream);
-                        }
+                        // streams가 없지만 track이 있는 경우 (일부 브라우저/Electron)
+                        console.log('[Signaling] ⚠️ No streams but track exists, creating new MediaStream');
+                        stream = new MediaStream([event.track]);
+                        console.log('[Signaling] ✅ Created MediaStream from track:', {
+                            streamId: stream.id,
+                            trackKind: event.track.kind,
+                            trackId: event.track.id,
+                            trackLabel: event.track.label
+                        });
+                    } else {
+                        console.error('[Signaling] ❌ No streams and no track in ontrack event');
+                        return;
+                    }
+
+                    // 🔥 스트림을 반드시 저장
+                    if (this.webRTCManager && this.webRTCManager.handleRemoteStream) {
+                        console.log('[Signaling] 📤 Calling handleRemoteStream with sid:', fromSid);
+                        this.webRTCManager.handleRemoteStream(fromSid, stream);
+
+                        // 저장 확인 (즉시 확인)
+                        setTimeout(() => {
+                            const savedStream = this.mediaStreamManager.getRemoteStream(fromSid);
+                            const savedScreenStream = this.mediaStreamManager.getRemoteScreenStream(fromSid);
+                            const allStreams = this.mediaStreamManager.getAllRemoteStreams();
+                            const allScreenStreams = this.mediaStreamManager.getAllRemoteScreenStreams();
+                            console.log('[Signaling] ✅ Stream storage verification:', {
+                                savedCameraStream: !!savedStream,
+                                savedScreenStream: !!savedScreenStream,
+                                fromSid: fromSid,
+                                allCameraStreams: Object.keys(allStreams),
+                                allScreenStreams: Object.keys(allScreenStreams)
+                            });
+                        }, 100);
+                    } else {
+                        // Fallback: 직접 저장
+                        console.warn('[Signaling] ⚠️ WebRTCManager not available, saving directly');
+                        this.mediaStreamManager.setRemoteStream(fromSid, stream);
+                        console.log('[Signaling] ✅ Stream saved directly to MediaStreamManager');
                     }
                 };
-                
+
                 // ICE candidate 이벤트도 설정
                 pc.onicecandidate = (event) => {
                     if (event.candidate) {
@@ -96,6 +166,19 @@ export class SignalingHandler {
                             sdpMid: event.candidate.sdpMid,
                             sdpMLineIndex: event.candidate.sdpMLineIndex
                         };
+
+                        // 🔥 빈 candidate 필터링
+                        if (!candidateData.candidate || candidateData.candidate.trim() === '') {
+                            console.log('[Signaling] ⚠️ Empty candidate, skipping');
+                            return;
+                        }
+
+                        console.log('[Signaling] 📤 Sending ICE candidate to:', fromSid, {
+                            candidate: candidateData.candidate?.substring(0, 50) + '...',
+                            sdpMid: candidateData.sdpMid,
+                            sdpMLineIndex: candidateData.sdpMLineIndex
+                        });
+
                         this.socketManager.emit('webrtc_ice_candidate', {
                             targetSid: fromSid,
                             candidate: candidateData
@@ -119,24 +202,43 @@ export class SignalingHandler {
             console.log('[Signaling] ✅ Offer set, new state:', pc.signalingState);
 
             // answer 생성 전 상태 확인
+            console.log('[Signaling] 🔧 PC signalingState before createAnswer:', pc.signalingState);
             if (pc.signalingState !== 'have-remote-offer') {
                 console.warn('[Signaling] ⚠️ Wrong state for creating answer:', pc.signalingState);
             }
 
+            console.log('[Signaling] 🔧 Calling createAnswer()...');
             const answer = await pc.createAnswer();
-            console.log('[Signaling] Answer created, SDP contains video:', answer.sdp.includes('m=video'));
+            console.log('[Signaling] ✅ createAnswer() SUCCEEDED!');
+            console.log('[Signaling] 📋 Answer type:', answer.type);
+            console.log('[Signaling] 📋 Answer SDP contains video:', answer.sdp.includes('m=video'));
+            console.log('[Signaling] 📋 Answer SDP contains audio:', answer.sdp.includes('m=audio'));
+
             await pc.setLocalDescription(answer);
-            console.log('[Signaling] ✅ Answer created and set, new state:', pc.signalingState);
+            console.log('[Signaling] ✅ setLocalDescription(answer) SUCCEEDED, new state:', pc.signalingState);
 
             const channelId = this.serverManager.currentChannel?.id;
-            this.socketManager.emit('webrtc_answer', {
-                targetSid: fromSid,
+
+            // 🔥 CRITICAL: targetSid는 offer를 보낸 peer의 sid (서버가 이 peer에게 라우팅)
+            // 서버에서 fromSid를 현재 Peer B의 sid로 변환해서 보냄
+            const answerData = {
+                targetSid: fromSid,  // 서버에서 이 sid로 라우팅함
                 answer: answer,
                 channelId: channelId
-            });
-            console.log('[Signaling] ✅ Answer sent to:', fromSid);
+            };
+
+            console.log('='.repeat(60));
+            console.log('[Signaling] 📤 EMITTING webrtc_answer TO SERVER!');
+            console.log('[Signaling] 📤 targetSid (destination):', fromSid);
+            console.log('[Signaling] 📤 answer type:', answer?.type);
+            console.log('[Signaling] 📤 channelId:', channelId);
+            console.log('='.repeat(60));
+
+            this.socketManager.emit('webrtc_answer', answerData);
+            console.log('[Signaling] ✅ webrtc_answer EMITTED TO SERVER!');
         } catch (error) {
             console.error('[Signaling] ❌ Error handling offer:', error);
+            console.error('[Signaling] ❌ Error stack:', error.stack);
         }
     }
 
@@ -146,22 +248,23 @@ export class SignalingHandler {
      * @param {Object} answer - SDP Answer
      */
     async handleAnswer(fromSid, answer) {
-        console.log('[Signaling] handleAnswer from:', fromSid);
+        console.log('[Signaling] 📩 Answer received from', fromSid);
 
         if (!answer) {
-            console.error('[Signaling] Invalid answer: null or undefined');
+            console.error('[Signaling] ❌ Invalid answer: null or undefined');
             return;
         }
 
         const pc = this.peerConnectionManager.get(fromSid);
         if (!pc) {
-            console.warn('[Signaling] No peer connection found for:', fromSid);
+            console.error('[Signaling] ❌ No peer connection found for:', fromSid, '- Cannot set answer');
             return;
         }
 
         try {
             const currentState = pc.signalingState;
-            console.log('[Signaling] Current signaling state:', currentState, '- Setting answer from:', fromSid);
+            console.log('[Signaling] 📋 Current signaling state:', currentState, '- Setting answer from:', fromSid);
+            console.log('[Signaling] 📋 Peer connection exists:', !!pc, 'connectionState:', pc.connectionState, 'iceConnectionState:', pc.iceConnectionState);
 
             // answer는 have-local-offer 상태일 때만 설정 가능
             if (currentState === 'stable') {
@@ -174,9 +277,11 @@ export class SignalingHandler {
                 return;
             }
 
+            // 🔥 have-local-offer 상태가 아니면 경고하지만 시도는 함
             if (currentState !== 'have-local-offer') {
                 console.warn('[Signaling] ⚠️ Wrong signaling state for setting answer:', currentState, '- Expected: have-local-offer');
-                return;
+                console.warn('[Signaling] ⚠️ Attempting to set answer anyway - this might cause an error');
+                // 상태가 맞지 않아도 시도 (일부 경우 정상 작동할 수 있음)
             }
 
             // answer 형식 보정
@@ -185,13 +290,25 @@ export class SignalingHandler {
                 answerDesc = { type: 'answer', sdp: answer.sdp || answer };
             }
 
+            console.log('[Signaling] 📤 Attempting to set remote description (answer)...');
             await pc.setRemoteDescription(new RTCSessionDescription(answerDesc));
-            console.log('[Signaling] ✅ Answer set successfully, new state:', pc.signalingState);
+            console.log('[Signaling] ✅ Answer set successfully! New state:', pc.signalingState);
+            console.log('[Signaling] ✅ Connection state after answer:', pc.connectionState, 'ICE state:', pc.iceConnectionState);
         } catch (error) {
             if (error.name === 'InvalidStateError') {
-                console.warn('[Signaling] ⚠️ InvalidStateError - Answer already set or wrong state:', pc.signalingState);
+                console.error('[Signaling] ❌ InvalidStateError - Answer setting failed:', {
+                    error: error.message,
+                    currentState: pc.signalingState,
+                    hasLocalDescription: !!pc.localDescription,
+                    hasRemoteDescription: !!pc.remoteDescription
+                });
             } else {
-                console.error('[Signaling] ❌ Error setting answer:', error);
+                console.error('[Signaling] ❌ Error setting answer:', {
+                    error: error.name,
+                    message: error.message,
+                    currentState: pc.signalingState,
+                    connectionState: pc.connectionState
+                });
             }
         }
     }

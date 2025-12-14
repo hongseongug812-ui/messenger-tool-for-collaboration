@@ -6,10 +6,15 @@ import { ServerManager } from './modules/ServerManager.js';
 import { WebRTCManager } from './modules/WebRTCManager.js';
 import { WhiteboardManager } from './modules/WhiteboardManager.js';
 import { NotepadManager } from './modules/NotepadManager.js';
+import EventBus from './utils/EventBus.js';
 
 class WorkMessenger {
   constructor() {
     this.apiBase = 'http://localhost:8000';
+
+    // EventBus 초기화 및 전역 접근 가능하게 설정
+    this.eventBus = EventBus;
+    window.EventBus = EventBus; // 전역 접근용 (디버깅 및 인라인 핸들러용)
 
     // Initialize Managers
     this.auth = new AuthManager(this);

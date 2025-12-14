@@ -32,7 +32,7 @@ export class SocketManager {
         const token = this.app.auth.authToken;
         this.connection.token = token;
         const connected = this.connection.connect();
-        
+
         if (!connected) {
             this.updateConnectionStatus('연결 실패', false);
             return;
@@ -85,66 +85,71 @@ export class SocketManager {
             this.updateConnectionStatus('연결 오류', false);
         });
 
-        // 채팅 이벤트
+        // 채팅 이벤트 - EventBus를 통해 발행 (결합도 감소)
         this.eventHandler.on('message', (data) => {
-            this.app.chatManager.handleMessageReceived(data);
+            this.app.eventBus.emit('MESSAGE_RECEIVED', data);
         });
 
         this.eventHandler.on('notification', (data) => {
-            this.app.chatManager.handleNotificationReceived(data);
+            this.app.eventBus.emit('NOTIFICATION_RECEIVED', data);
         });
 
         this.eventHandler.on('message_deleted', (data) => {
-            this.app.chatManager.handleMessageDeleted(data);
+            this.app.eventBus.emit('MESSAGE_DELETED', data);
         });
 
         this.eventHandler.on('typing_start', (data) => {
-            this.app.chatManager.handleTypingStart(data);
+            this.app.eventBus.emit('TYPING_START', data);
         });
 
         this.eventHandler.on('typing_stop', (data) => {
-            this.app.chatManager.handleTypingStop(data);
+            this.app.eventBus.emit('TYPING_STOP', data);
         });
 
         this.eventHandler.on('user_read_update', (data) => {
-            this.app.chatManager.handleUserReadUpdate(data);
+            this.app.eventBus.emit('USER_READ_UPDATE', data);
         });
 
         this.eventHandler.on('reminder_notification', (data) => {
-            this.app.chatManager.handleReminderNotification(data);
+            this.app.eventBus.emit('REMINDER_NOTIFICATION', data);
         });
 
         this.eventHandler.on('poll_vote', (data) => {
-            this.app.chatManager.applyPollVote(data);
+            this.app.eventBus.emit('POLL_VOTE', data);
         });
 
         this.eventHandler.on('reaction_added', (data) => {
-            this.app.chatManager.handleReactionAdded(data);
+            this.app.eventBus.emit('REACTION_ADDED', data);
         });
 
         this.eventHandler.on('reaction_removed', (data) => {
-            this.app.chatManager.handleReactionRemoved(data);
+            this.app.eventBus.emit('REACTION_REMOVED', data);
         });
 
-        // 서버 이벤트
+        // 서버 이벤트 - EventBus를 통해 발행
         this.eventHandler.on('member_joined', (data) => {
-            this.app.serverManager.handleMemberJoined(data);
+            this.app.eventBus.emit('MEMBER_JOINED', data);
         });
 
         this.eventHandler.on('member_left', (data) => {
-            this.app.serverManager.handleMemberLeft(data);
+            this.app.eventBus.emit('MEMBER_LEFT', data);
         });
 
         this.eventHandler.on('user_status_changed', (data) => {
-            this.app.serverManager.handleUserStatusChanged(data);
+            this.app.eventBus.emit('USER_STATUS_CHANGED', data);
         });
 
         this.eventHandler.on('voice_state_update', (data) => {
             console.log('[SocketManager] voice_state_update received:', data);
-            this.app.serverManager.handleVoiceStateUpdate(data);
+            this.app.eventBus.emit('VOICE_STATE_UPDATE', data);
         });
 
-        // WebRTC 이벤트
+        // Note: webrtc_answer is handled ONLY in WebRTCManager.setupSignalingListeners()
+        // to avoid duplicate processing which breaks the signaling state machine.
+        // The handlers below were causing issues because handleAnswer was called multiple times.
+        // DO NOT add webrtc_answer handler here!
+
+
         this.eventHandler.on('screen_share_started', async (data) => {
             console.log('[SocketManager] screen_share_started received:', data);
             const channelId = this.app.serverManager.currentChannel?.id;

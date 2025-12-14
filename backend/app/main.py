@@ -3758,8 +3758,10 @@ async def call_join(sid, data):
             del call_participants[channel_id][old_sid]
             print(f"[WebRTC] Removed duplicate participant: {old_sid} for user {user_id}")
     
+    # 🔥 CRITICAL FIX: 'sid' 필드 포함! 프론트엔드에서 userId <-> socketId 매핑에 필수
     call_participants[channel_id][sid] = {
         "id": user_id,
+        "sid": sid,  # 🔥 Socket ID 포함!
         "name": user_name,
         "isScreenSharing": False
     }
@@ -3779,13 +3781,13 @@ async def call_join(sid, data):
         "callerId": sid,
         "userId": user_id,
         "userName": user_name,
-        "participants": list(call_participants[channel_id].values())
+        "participants": list(call_participants[channel_id].values())  # 🔥 각 participant에 sid 포함됨
     }, room=f"call_{channel_id}", skip_sid=sid)
     
     # 새 참가자에게 현재 참가자 목록 전송
     await sio.emit("call_participants", {
         "channelId": channel_id,
-        "participants": list(call_participants[channel_id].values()),
+        "participants": list(call_participants[channel_id].values()),  # 🔥 각 participant에 sid 포함됨
         "existingPeers": [s for s in call_participants[channel_id].keys() if s != sid]
     }, to=sid)
     
@@ -3794,7 +3796,7 @@ async def call_join(sid, data):
         await sio.emit("voice_state_update", {
             "serverId": server_id,
             "channelId": channel_id,
-            "participants": list(call_participants[channel_id].values())
+            "participants": list(call_participants[channel_id].values())  # 🔥 각 participant에 sid 포함됨
         }, room=f"server_{server_id}")
 
 
@@ -3805,7 +3807,12 @@ async def webrtc_offer(sid, data):
     offer = data.get("offer")
     channel_id = data.get("channelId")
     
-    print(f"[WebRTC] Relaying offer from {sid} to {target_sid}")
+    print("=" * 60)
+    print(f"[WebRTC] 📨 OFFER RECEIVED from {sid}")
+    print(f"[WebRTC] 📨 Target: {target_sid}")
+    print(f"[WebRTC] 📨 Has offer: {bool(offer)}")
+    print(f"[WebRTC] 📨 Channel ID: {channel_id}")
+    print("=" * 60)
     
     if target_sid and offer:
         await sio.emit("webrtc_offer", {
@@ -3813,23 +3820,39 @@ async def webrtc_offer(sid, data):
             "offer": offer,
             "channelId": channel_id
         }, to=target_sid)
+        print(f"[WebRTC] ✅ Offer RELAYED from {sid} -> {target_sid}")
+    else:
+        print(f"[WebRTC] ❌ Offer NOT relayed - missing targetSid or offer")
 
 
 @sio.event
 async def webrtc_answer(sid, data):
     """WebRTC answer 전달"""
     target_sid = data.get("targetSid")
+    # fromSid가 있으면 사용, 없으면 targetSid 사용
+    dest_sid = target_sid or data.get("fromSid")
     answer = data.get("answer")
     channel_id = data.get("channelId")
     
-    print(f"[WebRTC] Relaying answer from {sid} to {target_sid}")
+    print("=" * 60)
+    print(f"[WebRTC] 📩 ANSWER RECEIVED from {sid}")
+    print(f"[WebRTC] 📩 Target/Destination: {dest_sid}")
+    print(f"[WebRTC] 📩 Has answer: {bool(answer)}")
+    print(f"[WebRTC] 📩 Answer type: {answer.get('type') if answer else None}")
+    print(f"[WebRTC] 📩 Channel ID: {channel_id}")
+    print("=" * 60)
     
-    if target_sid and answer:
+    if dest_sid and answer:
         await sio.emit("webrtc_answer", {
-            "fromSid": sid,
+            "fromSid": sid,  # 실제 발신자 (Peer B)의 sid
             "answer": answer,
             "channelId": channel_id
-        }, to=target_sid)
+        }, to=dest_sid)
+        print(f"[WebRTC] ✅ Answer RELAYED from {sid} -> {dest_sid}")
+        print(f"[WebRTC] ✅ Answer payload: fromSid={sid}")
+    else:
+        print(f"[WebRTC] ❌ Answer NOT relayed - missing dest_sid ({dest_sid}) or answer ({bool(answer)})")
+
 
 
 @sio.event
