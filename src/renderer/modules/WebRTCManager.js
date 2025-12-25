@@ -349,6 +349,14 @@ export class WebRTCManager {
         // 화면 공유 시작 알림
         window.electronAPI.onSocketEvent('screen_share_started', async (data) => {
             console.log('[WebRTC] Screen share started by:', data.callerId, 'userId:', data.userId);
+
+            // 🔥 자기 자신의 화면 공유 이벤트는 무시 (자신은 로컬 프리뷰를 봄)
+            const currentUserId = this.app.auth?.currentUser?.id;
+            if (data.userId === currentUserId) {
+                console.log('[WebRTC] ℹ️ Ignoring own screen_share_started event - local preview handles this');
+                return;
+            }
+
             const channelId = this.app.serverManager.currentChannel?.id;
             if (channelId) {
                 this.app.serverManager.updateParticipantScreenShare(channelId, data.userId, true);
@@ -378,119 +386,15 @@ export class WebRTCManager {
                 }
             }
 
-            // 화면 공유자와 P2P 연결이 없으면 생성
-            // 통화 중이 아니어도 화면 공유를 보기 위해 연결 생성
-            // SOLID: PeerConnectionManager를 통해 확인
-            if (data.callerId && !this.peerConnectionManager.exists(data.callerId)) {
-                console.log('[WebRTC] Creating peer connection to screen sharer:', data.callerId);
-                // 통화 중이 아니면 통화 참가
-                if (!this.isCallActive) {
-                    // 오디오 스트림 가져오기 (통화 시작)
-                    try {
-                        this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                        this.isCallActive = true;
-                        this.showCallControlBar();
+            // 🔥 수정: 수신자는 여기서 PC를 생성하지 않음
+            // 송신자가 addScreenShareToPeers에서 PC를 생성하고 offer를 보냄
+            // 수신자는 SignalingHandler.handleOffer에서 PC를 생성하고 ontrack을 설정함
+            console.log('[WebRTC] 🎬 Screen share started by user:', data.userId);
+            console.log('[WebRTC] Waiting for offer from sharer...');
 
-                        // 통화 참가
-                        const currentUser = this.app.auth?.currentUser;
-                        const serverId = this.app.serverManager.currentServer?.id;
-                        this.app.socketManager.emit('call_join', {
-                            currentChannelId: channelId,
-                            serverId: serverId,
-                            userId: currentUser?.id,
-                            userName: currentUser?.name || 'User'
-                        });
-                    } catch (err) {
-                        console.error('[WebRTC] Failed to start call for screen share:', err);
-                    }
-                }
-                // P2P 연결 생성 (initiator: true - offer 생성)
-                await this.createPeerConnection(data.callerId, true);
-            } else if (data.callerId && this.peerConnectionManager.exists(data.callerId)) {
-                // 이미 연결이 있으면 renegotiation 트리거
-                console.log('[WebRTC] Peer connection exists, triggering renegotiation');
-                const pc = this.peerConnectionManager.get(data.callerId);
-                try {
-                    const offer = await pc.createOffer();
-                    await pc.setLocalDescription(offer);
-                    this.app.socketManager.emit('webrtc_offer', {
-                        targetSid: data.callerId,
-                        offer: offer,
-                        channelId: channelId
-                    });
-                } catch (err) {
-                    console.error('[WebRTC] Renegotiation error:', err);
-                }
-            }
-
-            // 화면 공유 시작 알림 수신 시 즉시 원격 화면 공유 표시 시도 (Discord 스타일)
-            const userId = data.userId;
-            const callerSid = data.callerId;
-            if (userId || callerSid) {
-                console.log('[WebRTC] 🎬 Screen share started, immediately checking for stream');
-                console.log('[WebRTC] userId:', userId, 'callerSid:', callerSid);
-
-                // 🔥 핵심: peer connection이 없으면 생성
-                if (callerSid && !this.peerConnectionManager.exists(callerSid)) {
-                    console.log('[WebRTC] Creating peer connection to screen sharer:', callerSid);
-                    await this.createPeerConnection(callerSid, true);
-                }
-
-                // 즉시 한 번 체크
-                const checkStream = () => {
-                    let stream = null;
-
-                    // sid로 직접 스트림 찾기
-                    if (callerSid) {
-                        stream = this.mediaStreamManager.getRemoteStream(callerSid);
-                        if (stream && stream.getVideoTracks().length > 0) {
-                            console.log('[WebRTC] ✅ Found stream by sid:', callerSid);
-                            this.showRemoteScreenShare(userId, stream);
-                            return true;
-                        }
-                    }
-
-                    // userId로 sid 찾아서 스트림 찾기
-                    if (!stream && userId) {
-                        const sid = this.findSidByUserId(userId);
-                        if (sid) {
-                            stream = this.mediaStreamManager.getRemoteStream(sid);
-                            if (stream && stream.getVideoTracks().length > 0) {
-                                console.log('[WebRTC] ✅ Found stream by userId:', userId);
-                                this.showRemoteScreenShare(userId, stream);
-                                return true;
-                            }
-                        }
-                    }
-
-                    // 모든 원격 스트림에서 비디오 트랙 찾기
-                    const allStreams = this.mediaStreamManager.getAllRemoteStreams();
-                    for (const [sid, s] of Object.entries(allStreams)) {
-                        if (s && s.getVideoTracks && s.getVideoTracks().length > 0) {
-                            console.log('[WebRTC] ✅ Found video stream in all streams:', sid);
-                            this.showRemoteScreenShare(userId, s);
-                            return true;
-                        }
-                    }
-
-                    return false;
-                };
-
-                // 즉시 체크
-                if (!checkStream()) {
-                    // 없으면 빠르게 재시도 (Discord처럼)
-                    let attempts = 0;
-                    const maxAttempts = 10; // 5초 동안 빠르게 시도
-                    const checkInterval = setInterval(() => {
-                        attempts++;
-                        if (checkStream() || attempts >= maxAttempts) {
-                            clearInterval(checkInterval);
-                            if (attempts >= maxAttempts) {
-                                console.log('[WebRTC] ⚠️ Stream not found after', maxAttempts, 'attempts');
-                            }
-                        }
-                    }, 500); // 0.5초마다 체크 (더 빠르게)
-                }
+            // 스트림 대기 시작 (타임아웃 알림용)
+            if (data.userId) {
+                this.waitForRemoteStream(data.userId, 15000); // 15초 대기
             }
         });
 
@@ -627,12 +531,34 @@ export class WebRTCManager {
             const track = event.track;
             const trackLabel = track.label.toLowerCase();
 
-            // 화면 공유 트랙인지 판단
-            const isScreenShare = track.kind === 'video' && (
+            // 🔥 화면 공유 트랙인지 판단 (개선된 로직)
+            // 1. 트랙 라벨로 판단
+            const labelIndicatesScreenShare = track.kind === 'video' && (
                 trackLabel.includes('screen') ||
                 trackLabel.includes('display') ||
                 trackLabel.includes('desktop') ||
                 trackLabel.includes('window')
+            );
+
+            // 2. 해당 사용자가 화면 공유 중인지 확인 (screen_share_started 이벤트로 설정됨)
+            const userId = this.findUserIdBySid(targetSid);
+            const channelId = this.app.serverManager.currentChannel?.id;
+            let userIsSharing = false;
+            if (channelId && userId) {
+                const participants = this.app.serverManager.voiceParticipants?.[channelId] || [];
+                const participant = participants.find(p => p.id === userId);
+                userIsSharing = participant?.isScreenSharing === true;
+            }
+
+            // 3. 이미 오디오 스트림이 있는데 비디오가 새로 들어오면 화면 공유일 가능성 높음
+            const existingCameraStream = this.mediaStreamManager.getRemoteStream(targetSid, false);
+            const hasExistingVideo = existingCameraStream?.getVideoTracks().length > 0;
+
+            // 최종 판단: 라벨로 판단되거나, 사용자가 화면 공유 중이거나, 기존 비디오가 있는데 새 비디오가 들어온 경우
+            const isScreenShare = track.kind === 'video' && (
+                labelIndicatesScreenShare ||
+                userIsSharing ||
+                (hasExistingVideo && track.kind === 'video')
             );
 
             // 스트림 생성: event.streams가 있으면 사용, 없으면 track으로 생성
@@ -648,6 +574,9 @@ export class WebRTCManager {
             console.log('[WebRTC] Track processed:', {
                 kind: track.kind,
                 label: track.label,
+                labelIndicatesScreenShare: labelIndicatesScreenShare,
+                userIsSharing: userIsSharing,
+                hasExistingVideo: hasExistingVideo,
                 isScreenShare: isScreenShare,
                 streamId: stream.id,
                 streamActive: stream.active,

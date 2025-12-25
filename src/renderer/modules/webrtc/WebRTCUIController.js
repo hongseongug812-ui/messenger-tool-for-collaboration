@@ -149,12 +149,50 @@ export class WebRTCUIController {
 
         const video = document.getElementById('remote-screen-video');
         if (video && stream) {
-            video.srcObject = stream;
-            video.play().catch(e => {
-                if (e.name !== 'AbortError' && e.name !== 'NotAllowedError') {
-                    console.error('[WebRTC] Video play error:', e);
+            // 🔥 비디오 트랙이 enabled 상태인지 확인
+            const videoTracks = stream.getVideoTracks();
+            console.log('[WebRTCUI] Video tracks:', videoTracks.map(t => ({
+                id: t.id,
+                label: t.label,
+                enabled: t.enabled,
+                readyState: t.readyState,
+                muted: t.muted
+            })));
+
+            // 트랙 활성화
+            videoTracks.forEach(track => {
+                if (!track.enabled) {
+                    track.enabled = true;
+                    console.log('[WebRTCUI] Enabled video track:', track.id);
                 }
             });
+
+            video.srcObject = stream;
+
+            // 🔥 메타데이터 로드 후 재생 시도
+            video.onloadedmetadata = () => {
+                console.log('[WebRTCUI] Video metadata loaded, attempting play...');
+                video.play().catch(e => {
+                    console.warn('[WebRTCUI] Play after metadata failed:', e.name);
+                });
+            };
+
+            // 즉시 재생 시도
+            video.play().catch(e => {
+                if (e.name !== 'AbortError' && e.name !== 'NotAllowedError') {
+                    console.error('[WebRTCUI] Video play error:', e);
+                    // 1초 후 재시도
+                    setTimeout(() => {
+                        video.play().catch(e2 => {
+                            console.error('[WebRTCUI] Retry play failed:', e2);
+                        });
+                    }, 1000);
+                }
+            });
+
+            console.log('[WebRTCUI] ✅ Remote screen share video set up');
+        } else {
+            console.error('[WebRTCUI] ❌ Video element or stream not found:', { video: !!video, stream: !!stream });
         }
 
         // 닫기 버튼 이벤트

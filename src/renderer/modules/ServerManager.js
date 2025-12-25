@@ -1008,6 +1008,24 @@ export class ServerManager {
     updateParticipantScreenShare(channelId, userId, isSharing) {
         console.log('[ServerManager] updateParticipantScreenShare called:', channelId, userId, isSharing);
 
+        // 🔥 voiceParticipants 캐시에도 isScreenSharing 상태 업데이트
+        if (this.voiceParticipantsCache[channelId]) {
+            const participant = this.voiceParticipantsCache[channelId].find(p => p.id === userId);
+            if (participant) {
+                participant.isScreenSharing = isSharing;
+                console.log('[ServerManager] ✅ Updated isScreenSharing in cache:', userId, isSharing);
+            }
+        }
+
+        // voiceParticipants에도 업데이트 (별도로 관리되는 경우)
+        if (this.voiceParticipants && this.voiceParticipants[channelId]) {
+            const participant = this.voiceParticipants[channelId].find(p => p.id === userId);
+            if (participant) {
+                participant.isScreenSharing = isSharing;
+                console.log('[ServerManager] ✅ Updated isScreenSharing in voiceParticipants:', userId, isSharing);
+            }
+        }
+
         const container = document.getElementById(`voice-participants-${channelId}`);
         console.log('[ServerManager] container:', container);
         if (!container) return;
@@ -1036,7 +1054,7 @@ export class ServerManager {
 
         // 캐시에 저장 (나중에 복원 가능)
         this.voiceParticipantsCache[channelId] = participants;
-        
+
         // 🔥 참가자 매핑 저장 (WebRTCManager의 userSocketMap과 socketUserMap에 저장)
         if (this.app.webRTCManager && participants) {
             participants.forEach(participant => {
