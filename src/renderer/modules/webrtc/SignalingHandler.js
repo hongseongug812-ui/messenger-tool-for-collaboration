@@ -208,7 +208,10 @@ export class SignalingHandler {
             }
 
             console.log('[Signaling] 🔧 Calling createAnswer()...');
-            const answer = await pc.createAnswer();
+            const answer = await pc.createAnswer({
+                offerToReceiveVideo: true,
+                offerToReceiveAudio: true
+            });
             console.log('[Signaling] ✅ createAnswer() SUCCEEDED!');
             console.log('[Signaling] 📋 Answer type:', answer.type);
             console.log('[Signaling] 📋 Answer SDP contains video:', answer.sdp.includes('m=video'));

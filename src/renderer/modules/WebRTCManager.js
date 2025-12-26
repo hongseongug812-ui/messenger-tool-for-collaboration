@@ -2275,6 +2275,20 @@ export class WebRTCManager {
         };
 
         pc.ontrack = (event) => {
+            console.log('[WebRTC] 📨 ontrack event:', {
+                sid: targetSid,
+                trackKind: event.track.kind,
+                trackId: event.track.id,
+                streams: event.streams.length,
+                streamId: event.streams[0]?.id
+            });
+
+            if (event.streams && event.streams.length > 0) {
+                event.streams[0].onaddtrack = (e) => {
+                    console.log('[WebRTC] ➕ Stream track added:', e.track.kind, e.track.id);
+                };
+            }
+
             console.log('[WebRTC] 🎬 ontrack event received from (legacy):', targetSid);
             console.log('[WebRTC] Event details:', {
                 streams: event.streams?.length || 0,
