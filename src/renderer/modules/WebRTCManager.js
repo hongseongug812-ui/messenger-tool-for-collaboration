@@ -1341,7 +1341,17 @@ export class WebRTCManager {
 
                 // 타임아웃 체크
                 if (checkCount >= maxChecks) {
+                    const finalSid = this.findSidByUserId(userId);
                     console.error('[WebRTC] ❌ Timeout waiting for remote stream for userId:', userId);
+                    console.error('[WebRTC] ❌ Debug info at timeout:', {
+                        userId,
+                        foundSid: finalSid,
+                        hasCameraStream: finalSid ? !!this.mediaStreamManager.getRemoteStream(finalSid) : false,
+                        hasScreenStream: finalSid ? !!this.mediaStreamManager.getRemoteScreenStream(finalSid) : false,
+                        allRemoteStreams: Object.keys(this.mediaStreamManager.getAllRemoteStreams()),
+                        allRemoteScreenStreams: Object.keys(this.mediaStreamManager.getAllRemoteScreenStreams())
+                    });
+
                     clearInterval(checkInterval);
                     clearTimeout(timeoutId);
                     delete this.pendingStreamRequests[userId];
